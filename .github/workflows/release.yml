@@ -20,44 +20,49 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build Linux release tarballs
+      - name: Build Linux release artifacts
         run: |
           set -e
           mkdir -p dist
           build_arch () {
             local arch=$1
-            echo "==> Building xpanel-linux-$arch"
+            echo "==> 构建 xpanel-linux-$arch"
             mkdir -p "pkg/xpanel/bin"
             GOOS=linux GOARCH=$arch CGO_ENABLED=0 \
               go build -trimpath -ldflags "-s -w" -o "pkg/xpanel/xpanel" .
             cp xpanel.sh "pkg/xpanel/xpanel.sh"
-            # Xray core
-            curl -fsSL -o xray.zip "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-$arch.zip"
+            # Xray core（官方资源包命名: 64=amd64, arm64-v8a=arm64）
+            if [ "$arch" = "arm64" ]; then xray_asset="Xray-linux-arm64-v8a.zip"; else xray_asset="Xray-linux-64.zip"; fi
+            echo "==> 下载 $xray_asset"
+            curl -fsSL --retry 3 -o xray.zip "https://github.com/XTLS/Xray-core/releases/latest/download/$xray_asset"
             unzip -o -j xray.zip "xray" -d "pkg/xpanel/bin/"
             mv "pkg/xpanel/bin/xray" "pkg/xpanel/bin/xray-linux-$arch"
-            # Geo files
-            curl -fsSL -o "pkg/xpanel/bin/geoip.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
-            curl -fsSL -o "pkg/xpanel/bin/geosite.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
+            # Geo 文件
+            curl -fsSL --retry 3 -o "pkg/xpanel/bin/geoip.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
+            curl -fsSL --retry 3 -o "pkg/xpanel/bin/geosite.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
             tar -czf "dist/xpanel-linux-$arch.tar.gz" -C pkg xpanel
             rm -rf pkg xray.zip
-            # gost relay agent
-            echo "==> Building gost agent ($arch)"
+            # gost 中转 agent
+            echo "==> 构建 gost agent ($arch)"
             (cd agent && GOOS=linux GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o gost .)
             gzip -c agent/gost > "dist/gost-linux-$arch.gz"
             rm -f agent/gost
           }
           build_arch amd64
           build_arch arm64
+          echo "==> 产物清单"
+          ls -l dist/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: xpanel-linux
-          path: dist/xpanel-linux-*.tar.gz
+          name: xpanel-release
+          path: dist/*
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/xpanel-linux-*.tar.gz
-          generate_release_notes: true
+          files: dist/*
+          body_path: RELEASE_NOTES.md
+          fail_on_unmatched_files: true

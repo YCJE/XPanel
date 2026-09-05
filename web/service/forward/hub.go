@@ -122,11 +122,11 @@ func (c *agentConn) wrapMessage(payload []byte) ([]byte, error) {
 	if err != nil {
 		return payload, nil
 	}
-	return mustJSON(map[string]any{
+	return json.Marshal(map[string]any{
 		"encrypted": true,
 		"data":      encrypted,
 		"timestamp": time.Now().Unix(),
-	}), nil
+	})
 }
 
 // unwrapMessage decrypts an agent payload when needed.
@@ -168,7 +168,10 @@ func (h *Hub) SendCommand(nodeId int, cmdType string, data any, timeout time.Dur
 		c.pendMu.Unlock()
 	}()
 
-	payload := mustJSON(CommandMessage{Type: cmdType, Data: data, RequestId: requestId})
+	payload, err := json.Marshal(CommandMessage{Type: cmdType, Data: data, RequestId: requestId})
+	if err != nil {
+		return nil, fmt.Errorf("命令序列化失败: %w", err)
+	}
 	wire, err := c.wrapMessage(payload)
 	if err != nil {
 		return nil, err

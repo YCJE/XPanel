@@ -1,7 +1,6 @@
 package forward
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
@@ -176,11 +175,3 @@ func TunnelExitService(rule *model.TunnelRule) ([]map[string]any, error) {
 	return []map[string]any{svc}, nil
 }
 
-// mustJSON marshals v or panics; used only with map literals we build here.
-func mustJSON(v any) json.RawMessage {
-	b, err := json.Marshal(v)
-	if err != nil {
-		panic(err)
-	}
-	return b
-}

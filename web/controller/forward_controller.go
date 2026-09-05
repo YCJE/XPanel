@@ -175,10 +175,13 @@ func (a *ForwardController) toggleRule(c *gin.Context) {
 		return
 	}
 	var form struct {
-		Enable bool `json:"enable" form:"enable"`
+		Enable *bool `json:"enable" form:"enable"`
 	}
-	_ = c.ShouldBind(&form)
-	err := a.service.ToggleForwardRule(id, form.Enable)
+	if err := c.ShouldBind(&form); err != nil || form.Enable == nil {
+		pureJsonMsg(c, http.StatusOK, false, "参数错误: 缺少 enable 字段")
+		return
+	}
+	err := a.service.ToggleForwardRule(id, *form.Enable)
 	pureJsonMsg(c, http.StatusOK, err == nil, errString(err))
 }
 
@@ -258,10 +261,13 @@ func (a *ForwardController) toggleTunnel(c *gin.Context) {
 		return
 	}
 	var form struct {
-		Enable bool `json:"enable" form:"enable"`
+		Enable *bool `json:"enable" form:"enable"`
 	}
-	_ = c.ShouldBind(&form)
-	err := a.service.ToggleTunnelRule(id, form.Enable)
+	if err := c.ShouldBind(&form); err != nil || form.Enable == nil {
+		pureJsonMsg(c, http.StatusOK, false, "参数错误: 缺少 enable 字段")
+		return
+	}
+	err := a.service.ToggleTunnelRule(id, *form.Enable)
 	pureJsonMsg(c, http.StatusOK, err == nil, errString(err))
 }
 

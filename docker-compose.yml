@@ -1,0 +1,16 @@
+services:
+  xpanel:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    container_name: xpanel_app
+    # hostname: yourhostname <- optional
+    volumes:
+      - $PWD/db/:/etc/xpanel/
+      - $PWD/cert/:/root/cert/
+    environment:
+      XRAY_VMESS_AEAD_FORCED: "false"
+      XPANEL_ENABLE_FAIL2BAN: "true"
+    tty: true
+    network_mode: host
+    restart: unless-stopped

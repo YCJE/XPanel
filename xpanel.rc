@@ -1,0 +1,18 @@
+#!/sbin/openrc-run
+
+command="/usr/local/xpanel/xpanel"
+command_background=true
+pidfile="/run/xpanel.pid"
+description="xpanel Service"
+procname="xpanel"
+depend() {
+    need net
+}
+start_pre(){
+    cd /usr/local/xpanel
+}
+reload() {
+  ebegin "Reloading ${RC_SVCNAME}"
+  kill -USR1  $pidfile
+  eend $?
+}

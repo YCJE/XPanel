@@ -1,0 +1,124 @@
+package job
+
+import (
+	"github.com/YCJE/XPanel/logger"
+	"github.com/YCJE/XPanel/web/service"
+	"github.com/YCJE/XPanel/web/websocket"
+	"github.com/YCJE/XPanel/xray"
+)
+
+// XrayTrafficJob collects and processes traffic statistics from Xray, updating the database.
+type XrayTrafficJob struct {
+	xrayService     service.XrayService
+	inboundService  service.InboundService
+	outboundService service.OutboundService
+}
+
+// NewXrayTrafficJob creates a new traffic collection job instance.
+func NewXrayTrafficJob() *XrayTrafficJob {
+	return new(XrayTrafficJob)
+}
+
+// Run collects traffic statistics from Xray, updates the database, and pushes
+// real-time updates over WebSocket using compact delta payloads — no REST
+// fallback, scales to 10k–20k+ clients per inbound.
+func (j *XrayTrafficJob) Run() {
+	if !j.xrayService.IsXrayRunning() {
+		return
+	}
+	traffics, clientTraffics, err := j.xrayService.GetXrayTraffic()
+	if err != nil {
+		return
+	}
+	needRestart0, _, err := j.inboundService.AddTraffic(traffics, clientTraffics)
+	if err != nil {
+		logger.Warning("add inbound traffic failed:", err)
+	}
+	err, needRestart1 := j.outboundService.AddTraffic(traffics, clientTraffics)
+	if err != nil {
+		logger.Warning("add outbound traffic failed:", err)
+	}
+	if needRestart0 || needRestart1 {
+		j.xrayService.SetToNeedRestart()
+	}
+
+	// If no frontend client is connected, skip all WebSocket broadcasting
+	// routines — including the active-client DB query and JSON marshaling.
+	if !websocket.HasClients() {
+		return
+	}
+
+	// Online presence + traffic deltas — small payload, always fits in WS.
+	// Force non-nil slice/map so JSON marshalling produces [] / {} instead of
+	// `null` when everyone is offline. The frontend's traffic handler treats
+	// a missing/null onlineClients field as "no update", so without this the
+	// "everyone went offline" transition was silently dropped — stale online
+	// users lingered in the list and the online filter kept showing them.
+	onlineClients := j.inboundService.GetOnlineClients()
+	if onlineClients == nil {
+		onlineClients = []string{}
+	}
+	lastOnlineMap, err := j.inboundService.GetClientsLastOnline()
+	if err != nil {
+		logger.Warning("get clients last online failed:", err)
+	}
+	if lastOnlineMap == nil {
+		lastOnlineMap = make(map[string]int64)
+	}
+	websocket.BroadcastTraffic(map[string]any{
+		"traffics":       traffics,
+		"clientTraffics": clientTraffics,
+		"onlineClients":  onlineClients,
+		"lastOnlineMap":  lastOnlineMap,
+	})
+
+	// Compact delta payload: per-client absolute counters for clients active
+	// this cycle, plus inbound-level absolute totals. Frontend applies both
+	// in-place — typical payload ~10–50KB even for 10k+ client deployments.
+	// Replaces the old full-inbound-list broadcast that hit WS size limits
+	// (5–10MB) and forced the frontend into a REST refetch.
+	clientStatsPayload := map[string]any{}
+	if activeEmails := activeEmails(clientTraffics); len(activeEmails) > 0 {
+		if stats, err := j.inboundService.GetActiveClientTraffics(activeEmails); err != nil {
+			logger.Warning("get active client traffics for websocket failed:", err)
+		} else if len(stats) > 0 {
+			clientStatsPayload["clients"] = stats
+		}
+	}
+	if inboundSummary, err := j.inboundService.GetInboundsTrafficSummary(); err != nil {
+		logger.Warning("get inbounds traffic summary for websocket failed:", err)
+	} else if len(inboundSummary) > 0 {
+		clientStatsPayload["inbounds"] = inboundSummary
+	}
+	if len(clientStatsPayload) > 0 {
+		websocket.BroadcastClientStats(clientStatsPayload)
+	}
+
+	// Outbounds list is small (one row per outbound, no per-client expansion)
+	// so the full snapshot still fits comfortably in WS.
+	if updatedOutbounds, err := j.outboundService.GetOutboundsTraffic(); err == nil && updatedOutbounds != nil {
+		websocket.BroadcastOutbounds(updatedOutbounds)
+	} else if err != nil {
+		logger.Warning("get all outbounds for websocket failed:", err)
+	}
+}
+
+// activeEmails returns the set of client emails that had non-zero traffic in
+// the current collection window. Idle clients are skipped — no need to push
+// their (unchanged) counters to the frontend.
+func activeEmails(clientTraffics []*xray.ClientTraffic) []string {
+	if len(clientTraffics) == 0 {
+		return nil
+	}
+	emails := make([]string, 0, len(clientTraffics))
+	for _, ct := range clientTraffics {
+		if ct == nil || ct.Email == "" {
+			continue
+		}
+		if ct.Up == 0 && ct.Down == 0 {
+			continue
+		}
+		emails = append(emails, ct.Email)
+	}
+	return emails
+}

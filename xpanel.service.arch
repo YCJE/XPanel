@@ -1,0 +1,17 @@
+[Unit]
+Description=xpanel Service
+After=network.target
+Wants=network.target
+
+[Service]
+EnvironmentFile=-/etc/conf.d/xpanel
+Environment="XRAY_VMESS_AEAD_FORCED=false"
+Type=simple
+WorkingDirectory=/usr/lib/xpanel/
+ExecStart=/usr/lib/xpanel/xpanel
+ExecReload=kill -USR1 $MAINPID
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

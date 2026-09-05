@@ -1,0 +1,62 @@
+name: Release XPanel
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install arm64 cross compiler
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build Linux release tarballs
+        run: |
+          set -e
+          mkdir -p dist
+          build_arch () {
+            local arch=$1
+            local cc=$2
+            echo "==> Building xpanel-linux-$arch"
+            mkdir -p "pkg/xpanel/bin"
+            CC=$cc GOOS=linux GOARCH=$arch CGO_ENABLED=1 \
+              go build -trimpath -ldflags "-s -w" -o "pkg/xpanel/xpanel" .
+            cp xpanel.sh "pkg/xpanel/xpanel.sh"
+            # Xray core
+            curl -fsSL -o xray.zip "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-$arch.zip"
+            unzip -o -j xray.zip "xray" -d "pkg/xpanel/bin/"
+            mv "pkg/xpanel/bin/xray" "pkg/xpanel/bin/xray-linux-$arch"
+            # Geo files
+            curl -fsSL -o "pkg/xpanel/bin/geoip.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
+            curl -fsSL -o "pkg/xpanel/bin/geosite.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
+            tar -czf "dist/xpanel-linux-$arch.tar.gz" -C pkg xpanel
+            rm -rf pkg xray.zip
+          }
+          build_arch amd64 gcc
+          build_arch arm64 aarch64-linux-gnu-gcc
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xpanel-linux
+          path: dist/xpanel-linux-*.tar.gz
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/xpanel-linux-*.tar.gz
+          generate_release_notes: true

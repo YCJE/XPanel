@@ -174,4 +174,3 @@ func TunnelExitService(rule *model.TunnelRule) ([]map[string]any, error) {
 	}
 	return []map[string]any{svc}, nil
 }
-

@@ -51,6 +51,16 @@ func (a *IndexController) index(c *gin.Context) {
 	html(c, "login.html", "pages.login.title", nil)
 }
 
+// peerIP returns the raw TCP peer address (host only). Unlike getRemoteIp it
+// ignores X-Forwarded-For style headers, which clients can spoof, so the
+// login throttler cannot be bypassed by rotating them.
+func peerIP(c *gin.Context) string {
+	if ip, ok := extractTrustedIP(c.Request.RemoteAddr); ok {
+		return ip
+	}
+	return "unknown"
+}
+
 // login handles user authentication and session creation.
 func (a *IndexController) login(c *gin.Context) {
 	var form LoginForm
@@ -68,10 +78,18 @@ func (a *IndexController) login(c *gin.Context) {
 		return
 	}
 
+	ip := peerIP(c)
+	if !loginThrottler.allow(ip, form.Username) {
+		logger.Warningf("login throttled for user \"%s\" from %s", template.HTMLEscapeString(form.Username), ip)
+		pureJsonMsg(c, http.StatusOK, false, "失败次数过多，请 15 分钟后再试")
+		return
+	}
+
 	user, checkErr := a.userService.CheckUser(form.Username, form.Password, form.TwoFactorCode)
 	safeUser := template.HTMLEscapeString(form.Username)
 
 	if user == nil {
+		loginThrottler.fail(ip, form.Username)
 		logger.Warningf("wrong username: \"%s\", IP: \"%s\"", safeUser, getRemoteIp(c))
 		if checkErr != nil && checkErr.Error() == "invalid 2fa code" {
 			logger.Warningf("wrong 2fa code for user: \"%s\", IP: \"%s\"", safeUser, getRemoteIp(c))
@@ -80,6 +98,7 @@ func (a *IndexController) login(c *gin.Context) {
 		return
 	}
 
+	loginThrottler.success(ip, form.Username)
 	logger.Infof("%s logged in successfully, Ip Address: %s\n", safeUser, getRemoteIp(c))
 
 	if err := session.SetLoginUser(c, user); err != nil {

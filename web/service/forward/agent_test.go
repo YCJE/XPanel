@@ -260,3 +260,43 @@ func TestRuleValidationAndTrafficPreservation(t *testing.T) {
 		t.Fatal("expected rule disabled")
 	}
 }
+
+// TestAgentReplacement verifies that a second agent with the same secret
+// cleanly replaces the first session (old socket closed, node stays online)
+// without any send-on-closed-channel panic.
+func TestAgentReplacement(t *testing.T) {
+	svc, node := setupTestEnv(t)
+	r := newTestRouter(svc)
+	server := httptest.NewServer(r)
+	defer server.Close()
+
+	conn1 := dialAgent(t, server.URL, node.Secret)
+	defer conn1.Close()
+	waitOnline(t, node.Id)
+
+	conn2 := dialAgent(t, server.URL, node.Secret)
+	defer conn2.Close()
+	waitOnline(t, node.Id)
+
+	// The first session must be closed by the panel.
+	conn1.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, _, err := conn1.ReadMessage(); err == nil {
+		t.Fatal("expected first agent connection to be closed")
+	}
+
+	// The node must remain online through the second session.
+	if !GlobalHub.IsOnline(node.Id) {
+		t.Fatal("expected node to stay online after replacement")
+	}
+}
+
+func waitOnline(t *testing.T, nodeId int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !GlobalHub.IsOnline(nodeId) {
+		if time.Now().After(deadline) {
+			t.Fatal("agent never came online")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}

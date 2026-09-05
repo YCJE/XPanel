@@ -78,6 +78,18 @@ func (h *Hub) remove(nodeId int, c *agentConn) {
 // close tears down the connection. Pending command channels are never closed
 // (a concurrent dispatch would panic on send-to-closed); waiters observe the
 // done channel instead and fail fast.
+// CloseNode drops the live agent session of a node, if any. Used when the
+// node is deleted so stale agents cannot keep reporting.
+func (h *Hub) CloseNode(nodeId int) {
+	h.mu.Lock()
+	c := h.conns[nodeId]
+	delete(h.conns, nodeId)
+	h.mu.Unlock()
+	if c != nil {
+		c.close()
+	}
+}
+
 func (c *agentConn) close() {
 	c.doneOnce.Do(func() { close(c.done) })
 	c.pendMu.Lock()

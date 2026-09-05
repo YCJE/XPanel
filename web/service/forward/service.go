@@ -96,8 +96,9 @@ func (s *Service) UpdateNode(node *model.ForwardNode) error {
 		}).Error
 }
 
-// DelNode removes a node together with its rules.
+// DelNode removes a node together with its rules and drops its agent session.
 func (s *Service) DelNode(id int) error {
+	GlobalHub.CloseNode(id)
 	return database.GetDB().Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("id = ?", id).Delete(&model.ForwardNode{}).Error; err != nil {
 			return err

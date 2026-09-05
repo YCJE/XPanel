@@ -94,6 +94,7 @@
 "ultraDark" = "超暗色"
 "dashboard" = "系统状态"
 "inbounds" = "入站列表"
+"forward" = "转发管理"
 "settings" = "面板设置"
 "xray" = "Xray 设置"
 "logout" = "退出登录"

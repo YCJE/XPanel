@@ -17,7 +17,7 @@ import (
 	"github.com/YCJE/XPanel/util/crypto"
 	"github.com/YCJE/XPanel/xray"
 
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -39,6 +39,10 @@ func initModels() error {
 		&xray.ClientTraffic{},
 		&model.HistoryOfSeeders{},
 		&model.CustomGeoResource{},
+		&model.ForwardNode{},
+		&model.ForwardRule{},
+		&model.TunnelRule{},
+		&model.ForwardStats{},
 	}
 	for _, model := range models {
 		if err := db.AutoMigrate(model); err != nil {

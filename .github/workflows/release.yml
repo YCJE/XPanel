@@ -20,19 +20,15 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install arm64 cross compiler
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
-
       - name: Build Linux release tarballs
         run: |
           set -e
           mkdir -p dist
           build_arch () {
             local arch=$1
-            local cc=$2
             echo "==> Building xpanel-linux-$arch"
             mkdir -p "pkg/xpanel/bin"
-            CC=$cc GOOS=linux GOARCH=$arch CGO_ENABLED=1 \
+            GOOS=linux GOARCH=$arch CGO_ENABLED=0 \
               go build -trimpath -ldflags "-s -w" -o "pkg/xpanel/xpanel" .
             cp xpanel.sh "pkg/xpanel/xpanel.sh"
             # Xray core
@@ -44,9 +40,14 @@ jobs:
             curl -fsSL -o "pkg/xpanel/bin/geosite.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
             tar -czf "dist/xpanel-linux-$arch.tar.gz" -C pkg xpanel
             rm -rf pkg xray.zip
+            # gost relay agent
+            echo "==> Building gost agent ($arch)"
+            (cd agent && GOOS=linux GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o gost .)
+            gzip -c agent/gost > "dist/gost-linux-$arch.gz"
+            rm -f agent/gost
           }
-          build_arch amd64 gcc
-          build_arch arm64 aarch64-linux-gnu-gcc
+          build_arch amd64
+          build_arch arm64
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

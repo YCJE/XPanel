@@ -25,6 +25,7 @@ import (
 	"github.com/YCJE/XPanel/web/middleware"
 	"github.com/YCJE/XPanel/web/network"
 	"github.com/YCJE/XPanel/web/service"
+	"github.com/YCJE/XPanel/web/service/forward"
 	"github.com/YCJE/XPanel/web/websocket"
 
 	"github.com/gin-contrib/gzip"
@@ -104,6 +105,7 @@ type Server struct {
 	xrayService      service.XrayService
 	settingService   service.SettingService
 	customGeoService *service.CustomGeoService
+	forwardService   forward.Service
 
 	wsHub *websocket.Hub
 
@@ -284,6 +286,11 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	engine.GET("/.well-known/appspecific/com.chrome.devtools.json", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{})
 	})
+
+	// gost agent endpoints (root-level, independent of the panel basePath)
+	engine.GET("/system-info", s.forwardService.AgentWS)
+	engine.POST("/flow/upload", s.forwardService.FlowUpload)
+	engine.POST("/flow/config", s.forwardService.FlowConfig)
 
 	// Add a catch-all route to handle undefined paths and return 404
 	engine.NoRoute(func(c *gin.Context) {

@@ -1,0 +1,707 @@
+{{ template "page/head_start" .}}
+{{ template "page/head_end" .}}
+
+{{ template "page/body_start" .}}
+<a-layout id="app" v-cloak :class="themeSwitcher.currentTheme + ' forward-page'">
+  <a-sidebar></a-sidebar>
+  <a-layout id="content-layout">
+    <a-layout-content>
+      <a-spin :spinning="loadingStates.spinning" :delay="500" tip='{{ i18n "loading"}}' size="large">
+        <transition name="list" appear>
+          <a-row v-if="!loadingStates.fetched">
+            <div :style="{ minHeight: 'calc(100vh - 120px)' }"></div>
+          </a-row>
+          <a-col v-else :style="{ marginTop: '10px' }">
+            <a-card hoverable>
+              <a-tabs default-active-key="nodes">
+                <a-tab-pane key="nodes" tab="节点管理">
+                  <a-space direction="vertical" :style="{ width: '100%' }">
+                    <a-button type="primary" icon="plus" @click="openAddNode">添加节点</a-button>
+                    <a-table :columns="nodeColumns" :row-key="n => n.id" :data-source="nodes" :pagination="false"
+                      :scroll="isMobile ? {} : { x: 800 }">
+                      <template slot="online" slot-scope="text, n">
+                        <a-tag :color="n.online ? 'green' : 'red'">[[ n.online ? '在线' : '离线' ]]</a-tag>
+                      </template>
+                      <template slot="usage" slot-scope="text, n">
+                        <a-tag>CPU [[ n.cpuUsage?.toFixed(1) ]]%</a-tag>
+                        <a-tag>内存 [[ n.memUsage?.toFixed(1) ]]%</a-tag>
+                      </template>
+                      <template slot="portRange" slot-scope="text, n">
+                        [[ n.portStart > 0 ? (n.portStart + ' - ' + n.portEnd) : '不限' ]]
+                      </template>
+                      <template slot="inAddr" slot-scope="text, n">
+                        [[ n.inAddr || n.serverIp ]]
+                      </template>
+                      <template slot="nodeActions" slot-scope="text, n">
+                        <a-space>
+                          <a-button size="small" icon="copy" @click="showInstallCmd(n)">安装命令</a-button>
+                          <a-button size="small" icon="sync" @click="syncNode(n)"></a-button>
+                          <a-button size="small" icon="edit" @click="openEditNode(n)"></a-button>
+                          <a-button size="small" icon="delete" type="danger" @click="delNode(n)"></a-button>
+                        </a-space>
+                      </template>
+                    </a-table>
+                  </a-space>
+                </a-tab-pane>
+
+                <a-tab-pane key="forwards" tab="端口转发">
+                  <a-space direction="vertical" :style="{ width: '100%' }">
+                    <a-button type="primary" icon="plus" @click="openAddForward">添加转发</a-button>
+                    <a-table :columns="forwardColumns" :row-key="r => r.id" :data-source="forwards"
+                      :pagination="forwards.length > 10 ? { size: 'small' } : false"
+                      :scroll="isMobile ? {} : { x: 1000 }">
+                      <template slot="nodeId" slot-scope="text, r">
+                        [[ nodeName(r.nodeId) ]]
+                      </template>
+                      <template slot="ruleTraffic" slot-scope="text, r">
+                        <a-tag color="blue">↑[[ SizeFormatter.sizeFormat(r.up) ]]</a-tag>
+                        <a-tag color="cyan">↓[[ SizeFormatter.sizeFormat(r.down) ]]</a-tag>
+                        <a-tag>累计 [[ SizeFormatter.sizeFormat(r.allTime) ]]</a-tag>
+                      </template>
+                      <template slot="ratio" slot-scope="text, r">[[ r.ratio || 1 ]]x</template>
+                      <template slot="speed" slot-scope="text, r">
+                        [[ r.speed > 0 ? r.speed + ' Mbps' : '不限' ]]
+                      </template>
+                      <template slot="ruleEnable" slot-scope="text, r">
+                        <a-switch :checked="r.enable" @change="v => toggleForward(r, v)"></a-switch>
+                      </template>
+                      <template slot="ruleActions" slot-scope="text, r">
+                        <a-space>
+                          <a-button size="small" icon="edit" @click="openEditForward(r)"></a-button>
+                          <a-button size="small" icon="retweet" @click="resetTraffic('forward', r)"></a-button>
+                          <a-button size="small" icon="delete" type="danger" @click="delForward(r)"></a-button>
+                        </a-space>
+                      </template>
+                    </a-table>
+                  </a-space>
+                </a-tab-pane>
+
+                <a-tab-pane key="tunnels" tab="隧道转发">
+                  <a-space direction="vertical" :style="{ width: '100%' }">
+                    <a-button type="primary" icon="plus" @click="openAddTunnel">添加隧道</a-button>
+                    <a-table :columns="tunnelColumns" :row-key="r => r.id" :data-source="tunnels"
+                      :pagination="tunnels.length > 10 ? { size: 'small' } : false"
+                      :scroll="isMobile ? {} : { x: 1100 }">
+                      <template slot="inNodeId" slot-scope="text, r">
+                        [[ nodeName(r.inNodeId) ]]
+                      </template>
+                      <template slot="outPath" slot-scope="text, r">
+                        [[ nodeName(r.outNodeId) ]] : [[ r.outPort ]] ([[ r.transport ]])
+                      </template>
+                      <template slot="ruleTraffic" slot-scope="text, r">
+                        <a-tag color="blue">↑[[ SizeFormatter.sizeFormat(r.up) ]]</a-tag>
+                        <a-tag color="cyan">↓[[ SizeFormatter.sizeFormat(r.down) ]]</a-tag>
+                        <a-tag>累计 [[ SizeFormatter.sizeFormat(r.allTime) ]]</a-tag>
+                      </template>
+                      <template slot="ratio" slot-scope="text, r">[[ r.ratio || 1 ]]x</template>
+                      <template slot="speed" slot-scope="text, r">
+                        [[ r.speed > 0 ? r.speed + ' Mbps' : '不限' ]]
+                      </template>
+                      <template slot="ruleEnable" slot-scope="text, r">
+                        <a-switch :checked="r.enable" @change="v => toggleTunnel(r, v)"></a-switch>
+                      </template>
+                      <template slot="ruleActions" slot-scope="text, r">
+                        <a-space>
+                          <a-button size="small" icon="edit" @click="openEditTunnel(r)"></a-button>
+                          <a-button size="small" icon="retweet" @click="resetTraffic('tunnel', r)"></a-button>
+                          <a-button size="small" icon="delete" type="danger" @click="delTunnel(r)"></a-button>
+                        </a-space>
+                      </template>
+                    </a-table>
+                  </a-space>
+                </a-tab-pane>
+              </a-tabs>
+            </a-card>
+          </a-col>
+        </transition>
+      </a-spin>
+    </a-layout-content>
+  </a-layout>
+
+  <!-- 节点弹窗 -->
+  <a-modal id="node-modal" :title="nodeModal.title" :visible="nodeModal.visible" :confirm-loading="nodeModal.loading"
+    ok-text='{{ i18n "confirm" }}' cancel-text='{{ i18n "close" }}' :class="themeSwitcher.currentTheme"
+    @ok="() => nodeModal.ok()" @cancel="() => nodeModal.close()">
+    <a-form layout="vertical">
+      <a-form-item label="节点名称">
+        <a-input v-model.trim="nodeModal.form.name" placeholder="例如：上海中转"></a-input>
+      </a-form-item>
+      <a-form-item label="服务器 IP">
+        <a-input v-model.trim="nodeModal.form.serverIp" placeholder="节点之间互连使用的地址"></a-input>
+      </a-form-item>
+      <a-form-item label="入口 IP（可选）">
+        <a-input v-model.trim="nodeModal.form.inAddr" placeholder="对外展示的入口地址，留空则使用服务器 IP"></a-input>
+      </a-form-item>
+      <a-form-item label="允许端口范围（可选）">
+        <a-space>
+          <a-input-number :min="0" :max="65535" v-model="nodeModal.form.portStart"></a-input-number>
+          <span>-</span>
+          <a-input-number :min="0" :max="65535" v-model="nodeModal.form.portEnd"></a-input-number>
+        </a-space>
+      </a-form-item>
+    </a-form>
+  </a-modal>
+
+  <!-- 安装命令弹窗 -->
+  <a-modal id="install-modal" title="节点 Agent 安装命令" :visible="installModal.visible" footer=""
+    :closable="true" @cancel="() => installModal.visible = false" :class="themeSwitcher.currentTheme" width="720px">
+    <a-alert type="info" show-icon message="在中转节点服务器上以 root 执行以下命令，安装 gost agent 并连接本面板。"></a-alert>
+    <a-textarea id="install-cmd" readonly :rows="4" :value="installModal.command"
+      :style="{ marginTop: '10px', fontFamily: 'monospace' }"></a-textarea>
+    <a-button type="primary" icon="copy" :style="{ marginTop: '10px' }" @click="copyInstallCmd">复制命令</a-button>
+  </a-modal>
+
+  <!-- 端口转发弹窗 -->
+  <a-modal id="forward-modal" :title="forwardModal.title" :visible="forwardModal.visible"
+    :confirm-loading="forwardModal.loading" ok-text='{{ i18n "confirm" }}' cancel-text='{{ i18n "close" }}'
+    :class="themeSwitcher.currentTheme" @ok="() => forwardModal.ok()" @cancel="() => forwardModal.close()">
+    <a-form layout="vertical">
+      <a-form-item label="规则名称">
+        <a-input v-model.trim="forwardModal.form.name"></a-input>
+      </a-form-item>
+      <a-form-item label="节点">
+        <a-select v-model="forwardModal.form.nodeId" :dropdown-class-name="themeSwitcher.currentTheme">
+          <a-select-option v-for="n in nodes" :key="n.id" :value="n.id">[[ n.name ]]</a-select-option>
+        </a-select>
+      </a-form-item>
+      <a-form-item label="监听端口">
+        <a-input-number :min="1" :max="65535" v-model="forwardModal.form.inPort" :style="{ width: '100%' }"></a-input-number>
+      </a-form-item>
+      <a-form-item label="目标地址（逗号分隔可多目标，例如 1.2.3.4:443）">
+        <a-textarea :rows="2" v-model.trim="forwardModal.form.target"></a-textarea>
+      </a-form-item>
+      <a-form-item label="负载均衡策略">
+        <a-select v-model="forwardModal.form.strategy" :dropdown-class-name="themeSwitcher.currentTheme">
+          <a-select-option value="fifo">fifo（轮询）</a-select-option>
+          <a-select-option value="round">round（随机）</a-select-option>
+          <a-select-option value="hash">hash（源地址哈希）</a-select-option>
+        </a-select>
+      </a-form-item>
+      <a-form-item label="流量倍率">
+        <a-input-number :min="0.1" :step="0.1" v-model="forwardModal.form.ratio" :style="{ width: '100%' }"></a-input-number>
+      </a-form-item>
+      <a-form-item label="限速（Mbps，0 为不限）">
+        <a-input-number :min="0" v-model="forwardModal.form.speed" :style="{ width: '100%' }"></a-input-number>
+      </a-form-item>
+      <a-form-item label="备注">
+        <a-input v-model.trim="forwardModal.form.remark"></a-input>
+      </a-form-item>
+    </a-form>
+  </a-modal>
+
+  <!-- 隧道转发弹窗 -->
+  <a-modal id="tunnel-modal" :title="tunnelModal.title" :visible="tunnelModal.visible"
+    :confirm-loading="tunnelModal.loading" ok-text='{{ i18n "confirm" }}' cancel-text='{{ i18n "close" }}'
+    :class="themeSwitcher.currentTheme" width="640px" @ok="() => tunnelModal.ok()" @cancel="() => tunnelModal.close()">
+    <a-form layout="vertical">
+      <a-form-item label="隧道名称">
+        <a-input v-model.trim="tunnelModal.form.name"></a-input>
+      </a-form-item>
+      <a-row :gutter="10">
+        <a-col :span="12">
+          <a-form-item label="入口节点">
+            <a-select v-model="tunnelModal.form.inNodeId" :dropdown-class-name="themeSwitcher.currentTheme">
+              <a-select-option v-for="n in nodes" :key="n.id" :value="n.id">[[ n.name ]]</a-select-option>
+            </a-select>
+          </a-form-item>
+        </a-col>
+        <a-col :span="12">
+          <a-form-item label="出口节点">
+            <a-select v-model="tunnelModal.form.outNodeId" :dropdown-class-name="themeSwitcher.currentTheme">
+              <a-select-option v-for="n in nodes" :key="n.id" :value="n.id">[[ n.name ]]</a-select-option>
+            </a-select>
+          </a-form-item>
+        </a-col>
+      </a-row>
+      <a-row :gutter="10">
+        <a-col :span="12">
+          <a-form-item label="入口监听端口">
+            <a-input-number :min="1" :max="65535" v-model="tunnelModal.form.inPort" :style="{ width: '100%' }"></a-input-number>
+          </a-form-item>
+        </a-col>
+        <a-col :span="12">
+          <a-form-item label="出口监听端口">
+            <a-input-number :min="1" :max="65535" v-model="tunnelModal.form.outPort" :style="{ width: '100%' }"></a-input-number>
+          </a-form-item>
+        </a-col>
+      </a-row>
+      <a-form-item label="隧道传输协议（入口到出口）">
+        <a-select v-model="tunnelModal.form.transport" :dropdown-class-name="themeSwitcher.currentTheme">
+          <a-select-option value="ws">ws</a-select-option>
+          <a-select-option value="tls">tls</a-select-option>
+          <a-select-option value="quic">quic</a-select-option>
+        </a-select>
+      </a-form-item>
+      <a-form-item label="最终目标（出口侧转发到，例如落地机 127.0.0.1:443）">
+        <a-textarea :rows="2" v-model.trim="tunnelModal.form.target"></a-textarea>
+      </a-form-item>
+      <a-form-item label="负载均衡策略">
+        <a-select v-model="tunnelModal.form.strategy" :dropdown-class-name="themeSwitcher.currentTheme">
+          <a-select-option value="fifo">fifo（轮询）</a-select-option>
+          <a-select-option value="round">round（随机）</a-select-option>
+          <a-select-option value="hash">hash（源地址哈希）</a-select-option>
+        </a-select>
+      </a-form-item>
+      <a-form-item label="流量倍率">
+        <a-input-number :min="0.1" :step="0.1" v-model="tunnelModal.form.ratio" :style="{ width: '100%' }"></a-input-number>
+      </a-form-item>
+      <a-form-item label="限速（Mbps，0 为不限）">
+        <a-input-number :min="0" v-model="tunnelModal.form.speed" :style="{ width: '100%' }"></a-input-number>
+      </a-form-item>
+      <a-form-item label="备注">
+        <a-input v-model.trim="tunnelModal.form.remark"></a-input>
+      </a-form-item>
+    </a-form>
+  </a-modal>
+</a-layout>
+{{template "page/body_scripts" .}}
+{{template "component/aSidebar" .}}
+{{template "component/aThemeSwitch" .}}
+<script>
+  const app = new Vue({
+    delimiters: ['[[', ']]'],
+    el: '#app',
+    mixins: [MediaQueryMixin],
+    data: {
+      themeSwitcher,
+      loadingStates: {
+        fetched: false,
+        spinning: false
+      },
+      nodes: [],
+      forwards: [],
+      tunnels: [],
+      nodeModal: {
+        visible: false,
+        loading: false,
+        title: '',
+        isEdit: false,
+        form: {},
+        show(form, isEdit) {
+          this.form = form;
+          this.isEdit = isEdit;
+          this.title = isEdit ? '编辑节点' : '添加节点';
+          this.visible = true;
+        },
+        close() {
+          this.visible = false;
+        },
+        async ok() {
+          this.loading = true;
+          const url = this.isEdit ? 'panel/api/forward/nodes/update' : 'panel/api/forward/nodes/add';
+          const msg = await HttpUtil.post(url, this.form);
+          this.loading = false;
+          if (msg.success) {
+            this.close();
+            await app.loadData();
+          }
+        }
+      },
+      installModal: {
+        visible: false,
+        command: '',
+        show(node) {
+          const panel = window.location.host;
+          this.command = `curl -fsSL https://raw.githubusercontent.com/YCJE/XPanel/main/agent-install.sh | bash -s -- "${panel}" "${node.secret}"`;
+          this.visible = true;
+        }
+      },
+      forwardModal: {
+        visible: false,
+        loading: false,
+        title: '',
+        isEdit: false,
+        form: {},
+        show(form, isEdit) {
+          this.form = form;
+          this.isEdit = isEdit;
+          this.title = isEdit ? '编辑转发' : '添加转发';
+          this.visible = true;
+        },
+        close() {
+          this.visible = false;
+        },
+        async ok() {
+          this.loading = true;
+          const url = this.isEdit ? 'panel/api/forward/rules/update' : 'panel/api/forward/rules/add';
+          const msg = await HttpUtil.post(url, this.form);
+          this.loading = false;
+          if (msg.success) {
+            this.close();
+            await app.loadData();
+          }
+        }
+      },
+      tunnelModal: {
+        visible: false,
+        loading: false,
+        title: '',
+        isEdit: false,
+        form: {},
+        show(form, isEdit) {
+          this.form = form;
+          this.isEdit = isEdit;
+          this.title = isEdit ? '编辑隧道' : '添加隧道';
+          this.visible = true;
+        },
+        close() {
+          this.visible = false;
+        },
+        async ok() {
+          this.loading = true;
+          const url = this.isEdit ? 'panel/api/forward/tunnels/update' : 'panel/api/forward/tunnels/add';
+          const msg = await HttpUtil.post(url, this.form);
+          this.loading = false;
+          if (msg.success) {
+            this.close();
+            await app.loadData();
+          }
+        }
+      },
+      nodeColumns: [{
+          title: 'ID',
+          dataIndex: 'id',
+          width: 50
+        }, {
+          title: '名称',
+          dataIndex: 'name',
+          width: 100
+        }, {
+          title: '服务器 IP',
+          dataIndex: 'serverIp',
+          width: 120
+        }, {
+          title: '入口 IP',
+          dataIndex: 'inAddr',
+          width: 120,
+          scopedSlots: {
+            customRender: 'inAddr'
+          }
+        }, {
+          title: '端口范围',
+          dataIndex: 'portStart',
+          width: 90,
+          scopedSlots: {
+            customRender: 'portRange'
+          }
+        }, {
+          title: '状态',
+          dataIndex: 'online',
+          width: 70,
+          scopedSlots: {
+            customRender: 'online'
+          }
+        }, {
+          title: '负载',
+          dataIndex: 'cpuUsage',
+          width: 130,
+          scopedSlots: {
+            customRender: 'usage'
+          }
+        }, {
+          title: '操作',
+          dataIndex: 'action',
+          width: 220,
+          scopedSlots: {
+            customRender: 'nodeActions'
+          }
+        }],
+      forwardColumns: [{
+          title: 'ID',
+          dataIndex: 'id',
+          width: 50
+        }, {
+          title: '名称',
+          dataIndex: 'name',
+          width: 100
+        }, {
+          title: '节点',
+          dataIndex: 'nodeId',
+          width: 90,
+          scopedSlots: {
+            customRender: 'nodeId'
+          }
+        }, {
+          title: '监听端口',
+          dataIndex: 'inPort',
+          width: 80
+        }, {
+          title: '目标',
+          dataIndex: 'target',
+          width: 160
+        }, {
+          title: '策略',
+          dataIndex: 'strategy',
+          width: 70
+        }, {
+          title: '倍率',
+          dataIndex: 'ratio',
+          width: 60,
+          scopedSlots: {
+            customRender: 'ratio'
+          }
+        }, {
+          title: '限速',
+          dataIndex: 'speed',
+          width: 80,
+          scopedSlots: {
+            customRender: 'speed'
+          }
+        }, {
+          title: '流量',
+          dataIndex: 'up',
+          width: 220,
+          scopedSlots: {
+            customRender: 'ruleTraffic'
+          }
+        }, {
+          title: '启用',
+          dataIndex: 'enable',
+          width: 60,
+          scopedSlots: {
+            customRender: 'ruleEnable'
+          }
+        }, {
+          title: '操作',
+          dataIndex: 'action',
+          width: 130,
+          scopedSlots: {
+            customRender: 'ruleActions'
+          }
+        }],
+      tunnelColumns: [{
+          title: 'ID',
+          dataIndex: 'id',
+          width: 50
+        }, {
+          title: '名称',
+          dataIndex: 'name',
+          width: 100
+        }, {
+          title: '入口节点',
+          dataIndex: 'inNodeId',
+          width: 100,
+          scopedSlots: {
+            customRender: 'inNodeId'
+          }
+        }, {
+          title: '入口端口',
+          dataIndex: 'inPort',
+          width: 80
+        }, {
+          title: '出口（节点:端口/协议）',
+          dataIndex: 'outNodeId',
+          width: 180,
+          scopedSlots: {
+            customRender: 'outPath'
+          }
+        }, {
+          title: '最终目标',
+          dataIndex: 'target',
+          width: 160
+        }, {
+          title: '倍率',
+          dataIndex: 'ratio',
+          width: 60,
+          scopedSlots: {
+            customRender: 'ratio'
+          }
+        }, {
+          title: '限速',
+          dataIndex: 'speed',
+          width: 80,
+          scopedSlots: {
+            customRender: 'speed'
+          }
+        }, {
+          title: '流量',
+          dataIndex: 'up',
+          width: 220,
+          scopedSlots: {
+            customRender: 'ruleTraffic'
+          }
+        }, {
+          title: '启用',
+          dataIndex: 'enable',
+          width: 60,
+          scopedSlots: {
+            customRender: 'ruleEnable'
+          }
+        }, {
+          title: '操作',
+          dataIndex: 'action',
+          width: 130,
+          scopedSlots: {
+            customRender: 'ruleActions'
+          }
+        }],
+    },
+    methods: {
+      loading(spinning = true) {
+        this.loadingStates.spinning = spinning;
+      },
+      nodeName(nodeId) {
+        const node = this.nodes.find(n => n.id === nodeId);
+        return node ? node.name : ('#' + nodeId);
+      },
+      async loadData() {
+        const [nodes, forwards, tunnels] = await Promise.all([
+          HttpUtil.get('panel/api/forward/nodes'),
+          HttpUtil.get('panel/api/forward/rules'),
+          HttpUtil.get('panel/api/forward/tunnels'),
+        ]);
+        this.nodes = nodes.obj || [];
+        this.forwards = forwards.obj || [];
+        this.tunnels = tunnels.obj || [];
+        if (!this.loadingStates.fetched) {
+          this.loadingStates.fetched = true;
+        }
+      },
+      copyInstallCmd() {
+        const el = document.getElementById('install-cmd');
+        el.select();
+        document.execCommand('copy');
+        this.$message.success('已复制');
+      },
+      showInstallCmd(node) {
+        this.installModal.show(node);
+      },
+      syncNode(node) {
+        this.$message.loading('正在同步配置', 2);
+        HttpUtil.post(`panel/api/forward/nodes/sync/${node.id}`);
+      },
+      openAddNode() {
+        this.nodeModal.show({
+          name: '',
+          serverIp: '',
+          inAddr: '',
+          portStart: 0,
+          portEnd: 0
+        }, false);
+      },
+      openEditNode(node) {
+        this.nodeModal.show({
+          id: node.id,
+          name: node.name,
+          serverIp: node.serverIp,
+          inAddr: node.inAddr,
+          portStart: node.portStart,
+          portEnd: node.portEnd
+        }, true);
+      },
+      delNode(node) {
+        this.$confirm({
+          title: '删除节点',
+          content: `确定删除节点 "${node.name}" 及其全部转发规则？`,
+          okText: '{{ i18n "delete" }}',
+          cancelText: '{{ i18n "cancel" }}',
+          class: themeSwitcher.currentTheme,
+          onOk: async () => {
+            await HttpUtil.post(`panel/api/forward/nodes/del/${node.id}`);
+            await this.loadData();
+          }
+        });
+      },
+      openAddForward() {
+        this.forwardModal.show({
+          nodeId: this.nodes.length ? this.nodes[0].id : undefined,
+          name: '',
+          inPort: 10000,
+          target: '',
+          strategy: 'fifo',
+          ratio: 1,
+          speed: 0,
+          remark: ''
+        }, false);
+      },
+      openEditForward(rule) {
+        this.forwardModal.show({
+          ...rule
+        }, true);
+      },
+      delForward(rule) {
+        this.$confirm({
+          title: '删除转发',
+          content: `确定删除转发 "${rule.name}"？`,
+          okText: '{{ i18n "delete" }}',
+          cancelText: '{{ i18n "cancel" }}',
+          class: themeSwitcher.currentTheme,
+          onOk: async () => {
+            await HttpUtil.post(`panel/api/forward/rules/del/${rule.id}`);
+            await this.loadData();
+          }
+        });
+      },
+      toggleForward(rule, enable) {
+        HttpUtil.post(`panel/api/forward/rules/toggle/${rule.id}`, {
+          enable: enable
+        }).then(() => this.loadData());
+      },
+      openAddTunnel() {
+        this.tunnelModal.show({
+          name: '',
+          inNodeId: this.nodes.length ? this.nodes[0].id : undefined,
+          outNodeId: this.nodes.length > 1 ? this.nodes[1].id : undefined,
+          inPort: 20000,
+          outPort: 20000,
+          transport: 'ws',
+          target: '',
+          strategy: 'fifo',
+          ratio: 1,
+          speed: 0,
+          remark: ''
+        }, false);
+      },
+      openEditTunnel(rule) {
+        this.tunnelModal.show({
+          ...rule
+        }, true);
+      },
+      delTunnel(rule) {
+        this.$confirm({
+          title: '删除隧道',
+          content: `确定删除隧道 "${rule.name}"？`,
+          okText: '{{ i18n "delete" }}',
+          cancelText: '{{ i18n "cancel" }}',
+          class: themeSwitcher.currentTheme,
+          onOk: async () => {
+            await HttpUtil.post(`panel/api/forward/tunnels/del/${rule.id}`);
+            await this.loadData();
+          }
+        });
+      },
+      toggleTunnel(rule, enable) {
+        HttpUtil.post(`panel/api/forward/tunnels/toggle/${rule.id}`, {
+          enable: enable
+        }).then(() => this.loadData());
+      },
+      resetTraffic(type, rule) {
+        const url = type === 'forward' ?
+          `panel/api/forward/rules/traffic/${rule.id}` :
+          `panel/api/forward/tunnels/traffic/${rule.id}`;
+        this.$confirm({
+          title: '重置流量',
+          content: `确定重置 "${rule.name}" 的流量统计？`,
+          okText: '{{ i18n "confirm" }}',
+          cancelText: '{{ i18n "cancel" }}',
+          class: themeSwitcher.currentTheme,
+          onOk: async () => {
+            await HttpUtil.post(url);
+            await this.loadData();
+          }
+        });
+      },
+    },
+    async mounted() {
+      this.loading();
+      await this.loadData();
+      this.loading(false);
+      setInterval(() => {
+        if (this.loadingStates.fetched) {
+          this.loadData();
+        }
+      }, 10000);
+    },
+  });
+</script>
+{{ template "page/body_end" .}}

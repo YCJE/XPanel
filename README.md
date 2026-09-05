@@ -86,8 +86,11 @@ curl -fsSL https://raw.githubusercontent.com/YCJE/XPanel/main/agent-install.sh |
   bash -s -- "<面板地址:端口>" "<节点Token>"
 ```
 
-安装完成后节点显示「在线」。没有 Release 二进制时，可自行构建 agent 并设置
-`GOST_BIN_LOCAL=/path/to/gost` 环境变量后再运行安装脚本。
+安装完成后节点显示「在线」。没有 Release 二进制时，可自行构建 agent，并以第三个参数传入：
+
+```bash
+bash agent-install.sh "<面板地址:端口>" "<节点Token>" /path/to/gost
+```
 
 ### 3. 建立转发
 

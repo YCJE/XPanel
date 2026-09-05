@@ -3,6 +3,7 @@ package forward
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 
@@ -38,16 +39,13 @@ func deleteChainRequest(name string) map[string]any {
 }
 
 // entryListenAddr returns the address the entry node binds for a rule.
-// Empty node.InAddr falls back to node.ServerIP.
+// Only a concrete IP can be bound; anything else (empty or a domain) falls
+// back to 0.0.0.0 so the service always starts.
 func entryListenAddr(node *model.ForwardNode) string {
-	addr := node.InAddr
-	if addr == "" {
-		addr = node.ServerIP
+	if node.InAddr != "" && net.ParseIP(node.InAddr) != nil {
+		return node.InAddr
 	}
-	if addr == "" {
-		addr = "0.0.0.0"
-	}
-	return addr
+	return "0.0.0.0"
 }
 
 // buildForwarder builds the multi-target forwarder block shared by services.

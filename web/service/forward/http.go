@@ -75,6 +75,7 @@ func (s *Service) AgentWS(c *gin.Context) {
 		secret:  secret,
 		conn:    conn,
 		pending: make(map[string]chan *CommandResponse),
+		done:    make(chan struct{}),
 	}
 	GlobalHub.add(agent)
 	logger.Infof("node %d (%s) agent connected", node.Id, node.Name)
@@ -103,6 +104,13 @@ func (s *Service) readLoop(agent *agentConn) {
 	})
 }
 
+// maxFlowBody caps agent request bodies (1 MiB for traffic reports, 32 MiB
+// for full-config dumps) so a misbehaving agent cannot exhaust memory.
+const (
+	maxFlowBodyBytes   = 1 << 20
+	maxConfigBodyBytes = 32 << 20
+)
+
 // FlowUpload handles POST /flow/upload — per-service traffic reports.
 func (s *Service) FlowUpload(c *gin.Context) {
 	node := nodeBySecret(c.Query("secret"))
@@ -110,7 +118,7 @@ func (s *Service) FlowUpload(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
 		return
 	}
-	raw, err := io.ReadAll(c.Request.Body)
+	raw, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, maxFlowBodyBytes))
 	if err != nil {
 		c.String(http.StatusOK, "ok")
 		return
@@ -136,6 +144,6 @@ func (s *Service) FlowConfig(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
 		return
 	}
-	_, _ = io.Copy(io.Discard, c.Request.Body)
+	_, _ = io.Copy(io.Discard, http.MaxBytesReader(c.Writer, c.Request.Body, maxConfigBodyBytes))
 	c.String(http.StatusOK, "ok")
 }

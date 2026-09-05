@@ -8,9 +8,11 @@ set -e
 
 PANEL_ADDR="$1"
 SECRET="$2"
+# 可选第 3 个参数：本地 agent 二进制路径（无 Release 下载时使用）
+LOCAL_BIN="$3"
 
 if [ -z "$PANEL_ADDR" ] || [ -z "$SECRET" ]; then
-    echo "用法: bash agent-install.sh <面板地址:端口> <节点Token>"
+    echo "用法: bash agent-install.sh <面板地址:端口> <节点Token> [本地agent二进制路径]"
     echo "  面板地址形如 1.2.3.4:2053（浏览器访问面板时使用的地址与端口）"
     exit 1
 fi
@@ -39,7 +41,10 @@ mkdir -p /etc/gost /var/log/gost
 
 # ---------- 下载 agent ----------
 GOST_BIN="/etc/gost/gost"
-if [ -n "$GOST_BIN_LOCAL" ] && [ -f "$GOST_BIN_LOCAL" ]; then
+if [ -n "$LOCAL_BIN" ] && [ -f "$LOCAL_BIN" ]; then
+    echo ">>> 使用本地 agent: $LOCAL_BIN"
+    cp "$LOCAL_BIN" "$GOST_BIN"
+elif [ -n "$GOST_BIN_LOCAL" ] && [ -f "$GOST_BIN_LOCAL" ]; then
     echo ">>> 使用本地 agent: $GOST_BIN_LOCAL"
     cp "$GOST_BIN_LOCAL" "$GOST_BIN"
 else

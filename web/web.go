@@ -329,6 +329,12 @@ func (s *Server) startTask() {
 
 	// clear xray logs every day
 	s.cron.AddJob("@daily", job.NewClearLogsJob())
+
+	// Inbound traffic reset jobs (per-inbound trafficReset schedule)
+	s.cron.AddJob("@hourly", job.NewPeriodicTrafficResetJob("hourly"))
+	s.cron.AddJob("@daily", job.NewPeriodicTrafficResetJob("daily"))
+	s.cron.AddJob("@weekly", job.NewPeriodicTrafficResetJob("weekly"))
+	s.cron.AddJob("@monthly", job.NewPeriodicTrafficResetJob("monthly"))
 }
 
 // Start initializes and starts the web server with configured settings, routes, and background jobs.

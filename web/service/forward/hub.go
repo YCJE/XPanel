@@ -35,6 +35,9 @@ type agentConn struct {
 
 	pendMu  sync.Mutex
 	pending map[string]chan *CommandResponse
+
+	done     chan struct{}
+	doneOnce sync.Once
 }
 
 // Hub tracks every connected agent by node id.
@@ -72,14 +75,29 @@ func (h *Hub) remove(nodeId int, c *agentConn) {
 	}
 }
 
+// close tears down the connection. Pending command channels are never closed
+// (a concurrent dispatch would panic on send-to-closed); waiters observe the
+// done channel instead and fail fast.
 func (c *agentConn) close() {
+	c.doneOnce.Do(func() { close(c.done) })
 	c.pendMu.Lock()
-	for id, ch := range c.pending {
-		close(ch)
-		delete(c.pending, id)
-	}
+	c.pending = make(map[string]chan *CommandResponse)
 	c.pendMu.Unlock()
 	c.conn.Close()
+}
+
+// dispatch routes a command response to its waiter, if still pending.
+func (c *agentConn) dispatch(resp *CommandResponse) {
+	c.pendMu.Lock()
+	ch, ok := c.pending[resp.RequestId]
+	c.pendMu.Unlock()
+	if !ok {
+		return
+	}
+	select {
+	case ch <- resp:
+	default:
+	}
 }
 
 // wrapMessage AES-encrypts a payload when a secret is present.
@@ -159,6 +177,8 @@ func (h *Hub) SendCommand(nodeId int, cmdType string, data any, timeout time.Dur
 			return nil, fmt.Errorf("连接已断开")
 		}
 		return resp, nil
+	case <-c.done:
+		return nil, fmt.Errorf("连接已断开")
 	case <-time.After(timeout):
 		return nil, fmt.Errorf("等待节点响应超时")
 	}
@@ -190,15 +210,7 @@ func (h *Hub) readLoop(c *agentConn, onSystemInfo func(nodeId int, payload []byt
 		if strings.Contains(string(payload), "requestId") {
 			var resp CommandResponse
 			if json.Unmarshal(payload, &resp) == nil && resp.RequestId != "" {
-				c.pendMu.Lock()
-				ch, ok := c.pending[resp.RequestId]
-				c.pendMu.Unlock()
-				if ok {
-					select {
-					case ch <- &resp:
-					default:
-					}
-				}
+				c.dispatch(&resp)
 				continue
 			}
 		}

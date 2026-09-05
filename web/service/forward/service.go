@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -43,8 +44,8 @@ func (s *Service) GetNodes() ([]*model.ForwardNode, error) {
 
 // AddNode creates a node and generates its agent secret.
 func (s *Service) AddNode(name, serverIp, inAddr string, portStart, portEnd int) (*model.ForwardNode, error) {
-	if name == "" || serverIp == "" {
-		return nil, fmt.Errorf("节点名称与服务器IP不能为空")
+	if err := validateNodeFields(name, serverIp, inAddr, portStart, portEnd); err != nil {
+		return nil, err
 	}
 	node := &model.ForwardNode{
 		Name:      name,
@@ -60,10 +61,29 @@ func (s *Service) AddNode(name, serverIp, inAddr string, portStart, portEnd int)
 	return node, nil
 }
 
+func validateNodeFields(name, serverIp, inAddr string, portStart, portEnd int) error {
+	if name == "" || serverIp == "" {
+		return fmt.Errorf("节点名称与服务器IP不能为空")
+	}
+	if inAddr != "" && net.ParseIP(inAddr) == nil {
+		return fmt.Errorf("入口IP必须是合法 IP 地址（留空则绑定 0.0.0.0）")
+	}
+	if portStart < 0 || portEnd < 0 {
+		return fmt.Errorf("端口范围不能为负数")
+	}
+	if portStart > 0 && portEnd >= portStart && portEnd > 65535 {
+		return fmt.Errorf("端口范围超出 65535")
+	}
+	return nil
+}
+
 // UpdateNode saves editable node fields, keeping the existing secret.
 func (s *Service) UpdateNode(node *model.ForwardNode) error {
 	if node.Id <= 0 {
 		return fmt.Errorf("无效的节点")
+	}
+	if err := validateNodeFields(node.Name, node.ServerIP, node.InAddr, node.PortStart, node.PortEnd); err != nil {
+		return err
 	}
 	return database.GetDB().Model(&model.ForwardNode{}).
 		Where("id = ?", node.Id).
@@ -501,6 +521,15 @@ type flowItem struct {
 // ProcessFlow applies an agent traffic report to the matching rule.
 func (s *Service) ProcessFlow(item *flowItem) {
 	if item == nil || item.N == "" || item.N == "web_api" {
+		return
+	}
+	if item.U < 0 {
+		item.U = 0
+	}
+	if item.D < 0 {
+		item.D = 0
+	}
+	if item.U == 0 && item.D == 0 {
 		return
 	}
 	parts := strings.SplitN(item.N, "_", 2)

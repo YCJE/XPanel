@@ -38,3 +38,14 @@ docker-compose.override.yml
 
 # Ignore .env (Environment Variables) file
 .env
+# flux-panel 参考源码（不发布）
+/reference/
+
+# 构建产物
+/dist/
+/pkg/
+*.tar.gz
+*.exe
+/bin/xray*
+
+/.zcode/

@@ -154,7 +154,7 @@ func TestAgentLifecycle(t *testing.T) {
 
 	// Traffic upload: encrypted {"n":"pf1_tcp","u":100,"d":200}.
 	rule := &model.ForwardRule{NodeId: node.Id, Name: "测试", InPort: 12345, Target: "10.0.0.3:443", Ratio: 2, Enable: true}
-	if err := svc.AddForwardRule(rule); err != nil {
+	if err := svc.AddForwardRule(rule, nil); err != nil {
 		t.Fatalf("add rule: %v", err)
 	}
 	flow, _ := json.Marshal(flowItem{N: "pf" + itoa(rule.Id) + "_tcp", U: 100, D: 200})
@@ -206,4 +206,57 @@ func itoa(v int) string {
 func fmtInt(v int) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// TestRuleValidationAndTrafficPreservation covers port-conflict detection and
+// the guarantee that editing a rule never resets its traffic counters.
+func TestRuleValidationAndTrafficPreservation(t *testing.T) {
+	svc, node := setupTestEnv(t)
+
+	r1 := &model.ForwardRule{NodeId: node.Id, Name: "A", InPort: 10000, Target: "1.1.1.1:80", Ratio: 1, Enable: true}
+	if err := svc.AddForwardRule(r1, nil); err != nil {
+		t.Fatalf("add rule1: %v", err)
+	}
+
+	// Same port on the same node must be rejected.
+	conflict := &model.ForwardRule{NodeId: node.Id, Name: "B", InPort: 10000, Target: "1.1.1.1:81", Ratio: 1}
+	if err := svc.AddForwardRule(conflict, nil); err == nil {
+		t.Fatal("expected port conflict to be rejected")
+	}
+
+	// Tunnel entry port must also conflict with an existing forward.
+	node2, err := svc.AddNode("出口", "10.0.0.3", "", 0, 0)
+	if err != nil {
+		t.Fatalf("add node2: %v", err)
+	}
+	tunnel := &model.TunnelRule{Name: "T", InNodeId: node2.Id, OutNodeId: node.Id,
+		InPort: 20000, OutPort: 10000, Transport: "ws", Target: "1.1.1.1:80", Ratio: 1}
+	if err := svc.AddTunnelRule(tunnel, nil); err == nil {
+		t.Fatal("expected tunnel out-port conflict with forward rule to be rejected")
+	}
+
+	// Traffic recorded, then rule edited — counters must survive.
+	svc.ProcessFlow(&flowItem{N: "pf" + itoa(r1.Id) + "_tcp", U: 10, D: 20})
+	r1.Name = "A2"
+	r1.Up, r1.Down, r1.AllTime = 0, 0, 0 // form payload always carries zeroes
+	if err := svc.UpdateForwardRule(r1, nil); err != nil {
+		t.Fatalf("update rule: %v", err)
+	}
+	rules, err := svc.GetForwardRules()
+	if err != nil {
+		t.Fatalf("list rules: %v", err)
+	}
+	if rules[0].Name != "A2" || rules[0].Up != 10 || rules[0].Down != 20 || rules[0].AllTime != 30 {
+		t.Fatalf("update lost data: %+v", rules[0])
+	}
+
+	// Explicit disable through update.
+	no := false
+	if err := svc.UpdateForwardRule(rules[0], &no); err != nil {
+		t.Fatalf("disable via update: %v", err)
+	}
+	rules, _ = svc.GetForwardRules()
+	if rules[0].Enable {
+		t.Fatal("expected rule disabled")
+	}
 }

@@ -133,14 +133,10 @@ type forwardRuleForm struct {
 }
 
 func (f *forwardRuleForm) toModel() *model.ForwardRule {
-	enable := true
-	if f.Enable != nil {
-		enable = *f.Enable
-	}
 	return &model.ForwardRule{
 		Id: f.Id, NodeId: f.NodeId, Name: f.Name, InPort: f.InPort,
 		Target: f.Target, Strategy: f.Strategy, Ratio: f.Ratio,
-		Speed: f.Speed, Enable: enable, Remark: f.Remark,
+		Speed: f.Speed, Remark: f.Remark,
 	}
 }
 
@@ -150,7 +146,7 @@ func (a *ForwardController) addRule(c *gin.Context) {
 		pureJsonMsg(c, http.StatusOK, false, "参数错误")
 		return
 	}
-	err := a.service.AddForwardRule(form.toModel())
+	err := a.service.AddForwardRule(form.toModel(), form.Enable)
 	pureJsonMsg(c, http.StatusOK, err == nil, errString(err))
 }
 
@@ -160,7 +156,7 @@ func (a *ForwardController) updateRule(c *gin.Context) {
 		pureJsonMsg(c, http.StatusOK, false, "参数错误")
 		return
 	}
-	err := a.service.UpdateForwardRule(form.toModel())
+	err := a.service.UpdateForwardRule(form.toModel(), form.Enable)
 	pureJsonMsg(c, http.StatusOK, err == nil, errString(err))
 }
 
@@ -219,15 +215,11 @@ type tunnelRuleForm struct {
 }
 
 func (f *tunnelRuleForm) toModel() *model.TunnelRule {
-	enable := true
-	if f.Enable != nil {
-		enable = *f.Enable
-	}
 	return &model.TunnelRule{
 		Id: f.Id, Name: f.Name, InNodeId: f.InNodeId, OutNodeId: f.OutNodeId,
 		InPort: f.InPort, OutPort: f.OutPort, Transport: f.Transport,
 		Target: f.Target, Strategy: f.Strategy, Ratio: f.Ratio,
-		Speed: f.Speed, Enable: enable, Remark: f.Remark,
+		Speed: f.Speed, Remark: f.Remark,
 	}
 }
 
@@ -237,7 +229,7 @@ func (a *ForwardController) addTunnel(c *gin.Context) {
 		pureJsonMsg(c, http.StatusOK, false, "参数错误")
 		return
 	}
-	err := a.service.AddTunnelRule(form.toModel())
+	err := a.service.AddTunnelRule(form.toModel(), form.Enable)
 	pureJsonMsg(c, http.StatusOK, err == nil, errString(err))
 }
 
@@ -247,7 +239,7 @@ func (a *ForwardController) updateTunnel(c *gin.Context) {
 		pureJsonMsg(c, http.StatusOK, false, "参数错误")
 		return
 	}
-	err := a.service.UpdateTunnelRule(form.toModel())
+	err := a.service.UpdateTunnelRule(form.toModel(), form.Enable)
 	pureJsonMsg(c, http.StatusOK, err == nil, errString(err))
 }
 

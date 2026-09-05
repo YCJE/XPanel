@@ -93,10 +93,10 @@ func ForwardServices(node *model.ForwardNode, rule *model.ForwardRule) ([]map[st
 	services := make([]map[string]any, 0)
 	for _, proto := range []string{"tcp", "udp"} {
 		svc := map[string]any{
-			"name":     fmt.Sprintf("pf%d_%s", rule.Id, proto),
-			"addr":     listen + ":" + strconv.Itoa(rule.InPort),
-			"handler":  map[string]any{"type": proto},
-			"listener": map[string]any{"type": proto},
+			"name":      fmt.Sprintf("pf%d_%s", rule.Id, proto),
+			"addr":      listen + ":" + strconv.Itoa(rule.InPort),
+			"handler":   map[string]any{"type": proto},
+			"listener":  map[string]any{"type": proto},
 			"forwarder": forwarder,
 		}
 		if proto == "udp" {

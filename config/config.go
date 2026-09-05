@@ -45,21 +45,21 @@ func GetLogLevel() LogLevel {
 	if IsDebug() {
 		return Debug
 	}
-	logLevel := os.Getenv("XUI_LOG_LEVEL")
+	logLevel := os.Getenv("XPANEL_LOG_LEVEL")
 	if logLevel == "" {
 		return Info
 	}
 	return LogLevel(logLevel)
 }
 
-// IsDebug returns true if debug mode is enabled via the XUI_DEBUG environment variable.
+// IsDebug returns true if debug mode is enabled via the XPANEL_DEBUG environment variable.
 func IsDebug() bool {
-	return os.Getenv("XUI_DEBUG") == "true"
+	return os.Getenv("XPANEL_DEBUG") == "true"
 }
 
-// GetBinFolderPath returns the path to the binary folder, defaulting to "bin" if not set via XUI_BIN_FOLDER.
+// GetBinFolderPath returns the path to the binary folder, defaulting to "bin" if not set via XPANEL_BIN_FOLDER.
 func GetBinFolderPath() string {
-	binFolderPath := os.Getenv("XUI_BIN_FOLDER")
+	binFolderPath := os.Getenv("XPANEL_BIN_FOLDER")
 	if binFolderPath == "" {
 		binFolderPath = "bin"
 	}
@@ -85,7 +85,7 @@ func getBaseDir() string {
 
 // GetDBFolderPath returns the path to the database folder based on environment variables or platform defaults.
 func GetDBFolderPath() string {
-	dbFolderPath := os.Getenv("XUI_DB_FOLDER")
+	dbFolderPath := os.Getenv("XPANEL_DB_FOLDER")
 	if dbFolderPath != "" {
 		return dbFolderPath
 	}
@@ -102,7 +102,7 @@ func GetDBPath() string {
 
 // GetLogFolder returns the path to the log folder based on environment variables or platform defaults.
 func GetLogFolder() string {
-	logFolderPath := os.Getenv("XUI_LOG_FOLDER")
+	logFolderPath := os.Getenv("XPANEL_LOG_FOLDER")
 	if logFolderPath != "" {
 		return logFolderPath
 	}
@@ -137,7 +137,7 @@ func init() {
 	if runtime.GOOS != "windows" {
 		return
 	}
-	if os.Getenv("XUI_DB_FOLDER") != "" {
+	if os.Getenv("XPANEL_DB_FOLDER") != "" {
 		return
 	}
 	oldDBFolder := "/etc/x-ui"

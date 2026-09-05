@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/YCJE/XPanel/logger"
 	"github.com/YCJE/XPanel/util/common"
 	"github.com/YCJE/XPanel/web/session"
 	"github.com/YCJE/XPanel/web/websocket"
+	"github.com/google/uuid"
 
 	"github.com/gin-gonic/gin"
 	ws "github.com/gorilla/websocket"

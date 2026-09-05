@@ -18,7 +18,7 @@ type Msg struct {
 	Obj     any    `json:"obj"`     // Optional data object
 }
 
-// AllSetting contains all configuration settings for the 3x-ui panel including web server, Telegram bot, and subscription settings.
+// AllSetting contains all configuration settings for the XPanel web server, security and subscription settings.
 type AllSetting struct {
 	// Web server settings
 	WebListen     string `json:"webListen" form:"webListen"`         // Web server listen IP address
@@ -39,33 +39,33 @@ type AllSetting struct {
 	TwoFactorToken  string `json:"twoFactorToken" form:"twoFactorToken"`   // Two-factor authentication token
 
 	// Subscription server settings
-	SubEnable                   bool   `json:"subEnable" form:"subEnable"`                                     // Enable subscription server
-	SubJsonEnable               bool   `json:"subJsonEnable" form:"subJsonEnable"`                             // Enable JSON subscription endpoint
-	SubTitle                    string `json:"subTitle" form:"subTitle"`                                       // Subscription title
-	SubSupportUrl               string `json:"subSupportUrl" form:"subSupportUrl"`                             // Subscription support URL
-	SubProfileUrl               string `json:"subProfileUrl" form:"subProfileUrl"`                             // Subscription profile URL
-	SubAnnounce                 string `json:"subAnnounce" form:"subAnnounce"`                                 // Subscription announce
-	SubEnableRouting            bool   `json:"subEnableRouting" form:"subEnableRouting"`                       // Enable routing for subscription
-	SubRoutingRules             string `json:"subRoutingRules" form:"subRoutingRules"`                         // Subscription global routing rules (Only for Happ)
-	SubListen                   string `json:"subListen" form:"subListen"`                                     // Subscription server listen IP
-	SubPort                     int    `json:"subPort" form:"subPort"`                                         // Subscription server port
-	SubPath                     string `json:"subPath" form:"subPath"`                                         // Base path for subscription URLs
-	SubDomain                   string `json:"subDomain" form:"subDomain"`                                     // Domain for subscription server validation
-	SubCertFile                 string `json:"subCertFile" form:"subCertFile"`                                 // SSL certificate file for subscription server
-	SubKeyFile                  string `json:"subKeyFile" form:"subKeyFile"`                                   // SSL private key file for subscription server
-	SubUpdates                  int    `json:"subUpdates" form:"subUpdates"`                                   // Subscription update interval in minutes
-	SubEncrypt                  bool   `json:"subEncrypt" form:"subEncrypt"`                                   // Encrypt subscription responses
-	SubShowInfo                 bool   `json:"subShowInfo" form:"subShowInfo"`                                 // Show client information in subscriptions
-	SubURI                      string `json:"subURI" form:"subURI"`                                           // Subscription server URI
-	SubJsonPath                 string `json:"subJsonPath" form:"subJsonPath"`                                 // Path for JSON subscription endpoint
-	SubJsonURI                  string `json:"subJsonURI" form:"subJsonURI"`                                   // JSON subscription server URI
-	SubClashEnable              bool   `json:"subClashEnable" form:"subClashEnable"`                           // Enable Clash/Mihomo subscription endpoint
-	SubClashPath                string `json:"subClashPath" form:"subClashPath"`                               // Path for Clash/Mihomo subscription endpoint
-	SubClashURI                 string `json:"subClashURI" form:"subClashURI"`                                 // Clash/Mihomo subscription server URI
-	SubJsonFragment             string `json:"subJsonFragment" form:"subJsonFragment"`                         // JSON subscription fragment configuration
-	SubJsonNoises               string `json:"subJsonNoises" form:"subJsonNoises"`                             // JSON subscription noise configuration
-	SubJsonMux                  string `json:"subJsonMux" form:"subJsonMux"`                                   // JSON subscription mux configuration
-	SubJsonRules                string `json:"subJsonRules" form:"subJsonRules"`
+	SubEnable        bool   `json:"subEnable" form:"subEnable"`               // Enable subscription server
+	SubJsonEnable    bool   `json:"subJsonEnable" form:"subJsonEnable"`       // Enable JSON subscription endpoint
+	SubTitle         string `json:"subTitle" form:"subTitle"`                 // Subscription title
+	SubSupportUrl    string `json:"subSupportUrl" form:"subSupportUrl"`       // Subscription support URL
+	SubProfileUrl    string `json:"subProfileUrl" form:"subProfileUrl"`       // Subscription profile URL
+	SubAnnounce      string `json:"subAnnounce" form:"subAnnounce"`           // Subscription announce
+	SubEnableRouting bool   `json:"subEnableRouting" form:"subEnableRouting"` // Enable routing for subscription
+	SubRoutingRules  string `json:"subRoutingRules" form:"subRoutingRules"`   // Subscription global routing rules (Only for Happ)
+	SubListen        string `json:"subListen" form:"subListen"`               // Subscription server listen IP
+	SubPort          int    `json:"subPort" form:"subPort"`                   // Subscription server port
+	SubPath          string `json:"subPath" form:"subPath"`                   // Base path for subscription URLs
+	SubDomain        string `json:"subDomain" form:"subDomain"`               // Domain for subscription server validation
+	SubCertFile      string `json:"subCertFile" form:"subCertFile"`           // SSL certificate file for subscription server
+	SubKeyFile       string `json:"subKeyFile" form:"subKeyFile"`             // SSL private key file for subscription server
+	SubUpdates       int    `json:"subUpdates" form:"subUpdates"`             // Subscription update interval in minutes
+	SubEncrypt       bool   `json:"subEncrypt" form:"subEncrypt"`             // Encrypt subscription responses
+	SubShowInfo      bool   `json:"subShowInfo" form:"subShowInfo"`           // Show client information in subscriptions
+	SubURI           string `json:"subURI" form:"subURI"`                     // Subscription server URI
+	SubJsonPath      string `json:"subJsonPath" form:"subJsonPath"`           // Path for JSON subscription endpoint
+	SubJsonURI       string `json:"subJsonURI" form:"subJsonURI"`             // JSON subscription server URI
+	SubClashEnable   bool   `json:"subClashEnable" form:"subClashEnable"`     // Enable Clash/Mihomo subscription endpoint
+	SubClashPath     string `json:"subClashPath" form:"subClashPath"`         // Path for Clash/Mihomo subscription endpoint
+	SubClashURI      string `json:"subClashURI" form:"subClashURI"`           // Clash/Mihomo subscription server URI
+	SubJsonFragment  string `json:"subJsonFragment" form:"subJsonFragment"`   // JSON subscription fragment configuration
+	SubJsonNoises    string `json:"subJsonNoises" form:"subJsonNoises"`       // JSON subscription noise configuration
+	SubJsonMux       string `json:"subJsonMux" form:"subJsonMux"`             // JSON subscription mux configuration
+	SubJsonRules     string `json:"subJsonRules" form:"subJsonRules"`
 }
 
 // CheckValid validates all settings in the AllSetting struct, checking IP addresses, ports, SSL certificates, and other configuration values.

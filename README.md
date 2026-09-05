@@ -115,6 +115,12 @@ go test ./...       # 测试（含 agent 协议端到端测试）
 - 后端：Go + Gin + GORM(SQLite) + gorilla/websocket
 - 前端：Vue 2 + Ant Design Vue（服务端模板渲染，与 3x-ui 相同）
 
+调试面板与节点的通信协议时，可以在本机运行 agent 模拟器：
+
+```bash
+go run ./tools/agent-sim -addr 127.0.0.1:2053 -secret <节点Token>
+```
+
 ## 目录说明
 
 ```

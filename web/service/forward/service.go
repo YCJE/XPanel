@@ -115,17 +115,35 @@ func (s *Service) validateForwardRule(rule *model.ForwardRule) error {
 			return fmt.Errorf("端口超出节点允许范围 %d-%d", node.PortStart, node.PortEnd)
 		}
 	}
+	if s.portTaken(rule.NodeId, rule.InPort, rule.Id, 0) {
+		return fmt.Errorf("该端口在节点上已被其他转发/隧道规则占用")
+	}
 	if rule.Ratio <= 0 {
 		rule.Ratio = 1
 	}
 	return nil
 }
 
+// portTaken reports whether any other forward/tunnel rule already binds the
+// given port on the node (disabled rules still hold their port reservation).
+func (s *Service) portTaken(nodeId, port, excludeForwardId, excludeTunnelId int) bool {
+	var forwardCount, tunnelCount int64
+	database.GetDB().Model(&model.ForwardRule{}).
+		Where("node_id = ? AND in_port = ? AND id <> ?", nodeId, port, excludeForwardId).
+		Count(&forwardCount)
+	database.GetDB().Model(&model.TunnelRule{}).
+		Where("(in_node_id = ? AND in_port = ? AND id <> ?) OR (out_node_id = ? AND out_port = ? AND id <> ?)",
+			nodeId, port, excludeTunnelId, nodeId, port, excludeTunnelId).
+		Count(&tunnelCount)
+	return forwardCount+tunnelCount > 0
+}
+
 // AddForwardRule persists a rule and pushes it to the agent.
-func (s *Service) AddForwardRule(rule *model.ForwardRule) error {
+func (s *Service) AddForwardRule(rule *model.ForwardRule, enable *bool) error {
 	if err := s.validateForwardRule(rule); err != nil {
 		return err
 	}
+	rule.Enable = enable == nil || *enable
 	if err := database.GetDB().Create(rule).Error; err != nil {
 		return err
 	}
@@ -133,10 +151,20 @@ func (s *Service) AddForwardRule(rule *model.ForwardRule) error {
 	return nil
 }
 
-// UpdateForwardRule replaces the rule config on the agent.
-func (s *Service) UpdateForwardRule(rule *model.ForwardRule) error {
+// UpdateForwardRule replaces the rule config on the agent while preserving
+// traffic counters (and enable state unless explicitly toggled).
+func (s *Service) UpdateForwardRule(rule *model.ForwardRule, enable *bool) error {
+	existing := &model.ForwardRule{}
+	if err := database.GetDB().First(existing, rule.Id).Error; err != nil {
+		return fmt.Errorf("规则不存在")
+	}
 	if err := s.validateForwardRule(rule); err != nil {
 		return err
+	}
+	rule.Up, rule.Down, rule.AllTime = existing.Up, existing.Down, existing.AllTime
+	rule.Enable = existing.Enable
+	if enable != nil {
+		rule.Enable = *enable
 	}
 	if err := database.GetDB().Save(rule).Error; err != nil {
 		return err
@@ -219,6 +247,9 @@ func (s *Service) pushServicesWithSpeed(nodeId int, family string, services []ma
 	}
 	if speed > 0 {
 		_, _ = GlobalHub.SendCommand(nodeId, "AddLimiters", LimiterConfig(family, speed), 10*time.Second)
+	} else {
+		// Rule previously had a speed cap — drop the now-unused limiter.
+		_, _ = GlobalHub.SendCommand(nodeId, "DeleteLimiters", map[string]any{"limiter": family}, 10*time.Second)
 	}
 }
 
@@ -250,6 +281,12 @@ func (s *Service) validateTunnelRule(rule *model.TunnelRule) error {
 	if rule.InNodeId == rule.OutNodeId {
 		return fmt.Errorf("入口与出口不能是同一节点")
 	}
+	if s.portTaken(rule.InNodeId, rule.InPort, 0, rule.Id) {
+		return fmt.Errorf("入口端口在节点上已被其他转发/隧道规则占用")
+	}
+	if s.portTaken(rule.OutNodeId, rule.OutPort, 0, rule.Id) {
+		return fmt.Errorf("出口端口在节点上已被其他转发/隧道规则占用")
+	}
 	if rule.Ratio <= 0 {
 		rule.Ratio = 1
 	}
@@ -257,10 +294,11 @@ func (s *Service) validateTunnelRule(rule *model.TunnelRule) error {
 }
 
 // AddTunnelRule persists a tunnel rule and pushes config to both ends.
-func (s *Service) AddTunnelRule(rule *model.TunnelRule) error {
+func (s *Service) AddTunnelRule(rule *model.TunnelRule, enable *bool) error {
 	if err := s.validateTunnelRule(rule); err != nil {
 		return err
 	}
+	rule.Enable = enable == nil || *enable
 	if err := database.GetDB().Create(rule).Error; err != nil {
 		return err
 	}
@@ -268,10 +306,20 @@ func (s *Service) AddTunnelRule(rule *model.TunnelRule) error {
 	return nil
 }
 
-// UpdateTunnelRule replaces the tunnel config on both nodes.
-func (s *Service) UpdateTunnelRule(rule *model.TunnelRule) error {
+// UpdateTunnelRule replaces the tunnel config on both nodes while preserving
+// traffic counters (and enable state unless explicitly toggled).
+func (s *Service) UpdateTunnelRule(rule *model.TunnelRule, enable *bool) error {
+	existing := &model.TunnelRule{}
+	if err := database.GetDB().First(existing, rule.Id).Error; err != nil {
+		return fmt.Errorf("规则不存在")
+	}
 	if err := s.validateTunnelRule(rule); err != nil {
 		return err
+	}
+	rule.Up, rule.Down, rule.AllTime = existing.Up, existing.Down, existing.AllTime
+	rule.Enable = existing.Enable
+	if enable != nil {
+		rule.Enable = *enable
 	}
 	if err := database.GetDB().Save(rule).Error; err != nil {
 		return err
@@ -472,16 +520,17 @@ func (s *Service) ProcessFlow(item *flowItem) {
 			return
 		}
 		rule := &model.ForwardRule{}
-		if err := database.GetDB().First(rule, id).Error; err != nil {
+		if err := database.GetDB().Select("id", "ratio").First(rule, id).Error; err != nil {
 			return
 		}
 		up := int64(float64(item.U) * rule.Ratio)
 		down := int64(float64(item.D) * rule.Ratio)
-		rule.Up += up
-		rule.Down += down
-		rule.AllTime += up + down
+		// Atomic increments: concurrent reports for the same rule must not
+		// overwrite each other's counters.
 		database.GetDB().Model(&model.ForwardRule{}).Where("id = ?", rule.Id).Updates(map[string]any{
-			"up": rule.Up, "down": rule.Down, "all_time": rule.AllTime,
+			"up":       gorm.Expr("up + ?", up),
+			"down":     gorm.Expr("down + ?", down),
+			"all_time": gorm.Expr("all_time + ?", up+down),
 		})
 		s.addDailyStats("forward", rule.Id, day, up, down)
 
@@ -491,16 +540,15 @@ func (s *Service) ProcessFlow(item *flowItem) {
 			return
 		}
 		rule := &model.TunnelRule{}
-		if err := database.GetDB().First(rule, id).Error; err != nil {
+		if err := database.GetDB().Select("id", "ratio").First(rule, id).Error; err != nil {
 			return
 		}
 		up := int64(float64(item.U) * rule.Ratio)
 		down := int64(float64(item.D) * rule.Ratio)
-		rule.Up += up
-		rule.Down += down
-		rule.AllTime += up + down
 		database.GetDB().Model(&model.TunnelRule{}).Where("id = ?", rule.Id).Updates(map[string]any{
-			"up": rule.Up, "down": rule.Down, "all_time": rule.AllTime,
+			"up":       gorm.Expr("up + ?", up),
+			"down":     gorm.Expr("down + ?", down),
+			"all_time": gorm.Expr("all_time + ?", up+down),
 		})
 		s.addDailyStats("tunnel", rule.Id, day, up, down)
 

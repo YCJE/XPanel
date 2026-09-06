@@ -99,6 +99,10 @@ cleanup_acme_dir() {
 show_acme_log_tail() {
     tail -n 25 ~/.acme.sh/acme.sh.log 2> /dev/null | sed 's/^/    /'
 }
+# 校验证书文件确实是有效的 PEM 证书 (防止空文件静默通过)
+verify_cert_pem() {
+    grep -q "BEGIN CERTIFICATE" "$1" 2> /dev/null
+}
 
 # Port helpers
 is_port_in_use() {
@@ -219,6 +223,10 @@ setup_ssl_certificate() {
 
     if [ $? -ne 0 ]; then
         echo -e "${yellow}证书安装失败${plain}"
+        return 1
+    fi
+    if ! verify_cert_pem "/root/cert/${domain}/fullchain.pem"; then
+        echo -e "${red}证书文件内容校验失败（文件为空或不是 PEM 证书）${plain}"
         return 1
     fi
 
@@ -367,6 +375,13 @@ setup_ip_certificate() {
     if [[ ! -f "${certDir}/fullchain.pem" || ! -f "${certDir}/privkey.pem" ]]; then
         echo -e "${red}安装后未找到证书文件${plain}"
         # Cleanup acme.sh data for both IPv4 and IPv6 if specified
+        cleanup_acme_dir "${ipv4}"
+        [[ -n "$ipv6" ]] && cleanup_acme_dir "${ipv6}"
+        rm -rf ${certDir} 2> /dev/null
+        return 1
+    fi
+    if ! verify_cert_pem "${certDir}/fullchain.pem"; then
+        echo -e "${red}证书文件内容校验失败（文件为空或不是 PEM 证书）${plain}"
         cleanup_acme_dir "${ipv4}"
         [[ -n "$ipv6" ]] && cleanup_acme_dir "${ipv6}"
         rm -rf ${certDir} 2> /dev/null
@@ -545,6 +560,12 @@ ssl_cert_issue() {
 
     if [[ -f "/root/cert/${domain}/privkey.pem" && -f "/root/cert/${domain}/fullchain.pem" && (${installRc} -eq 0 || ${installWroteFiles} -eq 1) ]]; then
         echo -e "${green}证书安装成功，正在启用自动续期...${plain}"
+        if ! verify_cert_pem "/root/cert/${domain}/fullchain.pem"; then
+            echo -e "${red}证书文件内容校验失败（文件为空或不是 PEM 证书）${plain}"
+            cleanup_acme_dir "${domain}"
+            systemctl start xpanel 2> /dev/null || rc-service xpanel start 2> /dev/null
+            return 1
+        fi
     else
         echo -e "${red}证书安装失败，退出。${plain}"
         if [[ ${cert_exists} -eq 0 ]]; then

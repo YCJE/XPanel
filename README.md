@@ -99,13 +99,18 @@ bash agent-install.sh "<面板地址:端口>" "<节点Token>" /path/to/gost
 
 ## 发布流程
 
-推送 `v*` 标签后，GitHub Actions 自动构建并附加到 Release：
+**版本号规范**：小改动（bug 修复、文案优化等）递增修订号 `+0.0.1`；
+大改动（新功能、架构调整等）递增次版本号 `+0.1`。
+
+推送 `v*` 标签后，GitHub Actions 自动构建并附加到 Release
+（正文取自仓库根目录的 `RELEASE_NOTES.md`，发版前先更新它）：
 
 - `xpanel-linux-amd64.tar.gz` / `xpanel-linux-arm64.tar.gz`（面板，含 xray 二进制与 geo 文件）
 - `gost-linux-amd64.gz` / `gost-linux-arm64.gz`（中转 agent）
 
 ```bash
-git tag v1.0.0 && git push origin v1.0.0
+# 例：发布 v1.0.1（记得同步修改 config/version 与 RELEASE_NOTES.md）
+git tag v1.0.1 && git push origin v1.0.1
 ```
 
 ## 开发

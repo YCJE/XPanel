@@ -742,8 +742,11 @@ prompt_and_setup_ssl() {
                 fi
             done
 
-            # 3.4 Apply Settings via xpanel binary
-            ${xpanel_folder}/xpanel cert -webCert "$custom_cert" -webCertKey "$custom_key" > /dev/null 2>&1
+            # 3.4 Apply Settings via xpanel binary (CLI 自带 PEM 校验, 无效会拒绝保存)
+            if ! ${xpanel_folder}/xpanel cert -webCert "$custom_cert" -webCertKey "$custom_key"; then
+                echo -e "${red}错误: 证书/私钥内容校验未通过（为空、非 PEM 或两者不匹配），未应用。${plain}"
+                return 1
+            fi
 
             # Set SSL_HOST for composing Panel URL
             if [[ -n "$custom_domain" ]]; then

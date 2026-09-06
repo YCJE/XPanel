@@ -3,6 +3,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log"
@@ -260,6 +261,14 @@ func updateCert(publicKey string, privateKey string) {
 	}
 
 	if (privateKey != "" && publicKey != "") || (privateKey == "" && publicKey == "") {
+		// 校验证书对有效性, 防止空文件/不匹配的 PEM 静默写入导致面板回退 HTTP
+		if publicKey != "" {
+			if _, err := tls.LoadX509KeyPair(publicKey, privateKey); err != nil {
+				fmt.Printf("证书无效, 已拒绝保存: %v\n", err)
+				fmt.Println("请确认证书/私钥文件存在、内容为 PEM 格式且两者匹配")
+				return
+			}
+		}
 		settingService := service.SettingService{}
 		err = settingService.SetCertFile(publicKey)
 		if err != nil {

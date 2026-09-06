@@ -350,7 +350,7 @@ func (s *Server) Start() (err error) {
 			listener = tls.NewListener(listener, c)
 			logger.Info("Sub server running HTTPS on", listener.Addr())
 		} else {
-			logger.Error("Error loading certificates:", err)
+			logger.Errorf("Error loading certificates (cert=%q, key=%q): %v — falling back to HTTP", certFile, keyFile, err)
 			logger.Info("Sub server running HTTP on", listener.Addr())
 		}
 	} else {

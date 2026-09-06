@@ -90,6 +90,15 @@ is_ip() {
 is_domain() {
     [[ "$1" =~ ^([A-Za-z0-9](-*[A-Za-z0-9])*\.)+(xn--[a-z0-9]{2,}|[A-Za-z]{2,})$ ]] && return 0 || return 1
 }
+# 清理 acme.sh 中某域名/IP 的签发数据 (ECC 模式目录带 _ecc 后缀)
+cleanup_acme_dir() {
+    rm -rf ~/.acme.sh/"$1" 2> /dev/null
+    rm -rf ~/.acme.sh/"$1_ecc" 2> /dev/null
+}
+# 从 acme.sh 日志提取最近错误, 方便排障
+show_acme_log_tail() {
+    tail -n 25 ~/.acme.sh/acme.sh.log 2> /dev/null | sed 's/^/    /'
+}
 
 # Port helpers
 is_port_in_use() {
@@ -197,7 +206,7 @@ setup_ssl_certificate() {
     if [ $? -ne 0 ]; then
         echo -e "${yellow}为 ${domain} 签发证书失败${plain}"
         echo -e "${yellow}请确认 80 端口已开放，稍后可在 xpanel 菜单中重试${plain}"
-        rm -rf ~/.acme.sh/${domain} 2> /dev/null
+        cleanup_acme_dir "${domain}"
         rm -rf "$certPath" 2> /dev/null
         return 1
     fi
@@ -318,21 +327,28 @@ setup_ip_certificate() {
     echo -e "${green}正在为 ${ipv4} 签发 IP 证书...${plain}"
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt --force > /dev/null 2>&1
 
-    ~/.acme.sh/acme.sh --issue \
-        ${domain_args} \
-        --standalone \
-        --server letsencrypt \
-        --certificate-profile shortlived \
-        --days 6 \
-        --httpport ${WebPort} \
-        --force
+    local issued=0
+    local attempt
+    for attempt in 1 2 3; do
+        echo -e "${yellow}正在签发证书 (第 $attempt/3 次尝试)...${plain}"
+        ~/.acme.sh/acme.sh --issue             ${domain_args}             --standalone             --server letsencrypt             --certificate-profile shortlived             --days 6             --httpport ${WebPort}             --force             --log
+        if [ $? -eq 0 ]; then
+            issued=1
+            break
+        fi
+        if [ $attempt -lt 3 ]; then
+            echo -e "${yellow}本次签发失败（多为 CA 端瞬时网络问题），15 秒后自动重试...${plain}"
+            sleep 15
+        fi
+    done
 
-    if [ $? -ne 0 ]; then
-        echo -e "${red}IP 证书签发失败${plain}"
+    if [[ ${issued} -ne 1 ]]; then
+        echo -e "${red}IP 证书签发失败（已自动重试 3 次）。最近日志：${plain}"
+        show_acme_log_tail
         echo -e "${yellow}请确保 ${WebPort} 端口可访问（或从外部 80 端口转发）${plain}"
         # Cleanup acme.sh data for both IPv4 and IPv6 if specified
-        rm -rf ~/.acme.sh/${ipv4} 2> /dev/null
-        [[ -n "$ipv6" ]] && rm -rf ~/.acme.sh/${ipv6} 2> /dev/null
+        cleanup_acme_dir "${ipv4}"
+        [[ -n "$ipv6" ]] && cleanup_acme_dir "${ipv6}"
         rm -rf ${certDir} 2> /dev/null
         return 1
     fi
@@ -351,8 +367,8 @@ setup_ip_certificate() {
     if [[ ! -f "${certDir}/fullchain.pem" || ! -f "${certDir}/privkey.pem" ]]; then
         echo -e "${red}安装后未找到证书文件${plain}"
         # Cleanup acme.sh data for both IPv4 and IPv6 if specified
-        rm -rf ~/.acme.sh/${ipv4} 2> /dev/null
-        [[ -n "$ipv6" ]] && rm -rf ~/.acme.sh/${ipv6} 2> /dev/null
+        cleanup_acme_dir "${ipv4}"
+        [[ -n "$ipv6" ]] && cleanup_acme_dir "${ipv6}"
         rm -rf ${certDir} 2> /dev/null
         return 1
     fi
@@ -458,12 +474,27 @@ ssl_cert_issue() {
     systemctl stop xpanel 2> /dev/null || rc-service xpanel stop 2> /dev/null
 
     if [[ ${cert_exists} -eq 0 ]]; then
-        # issue the certificate
-        ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt --force
-        ~/.acme.sh/acme.sh --issue -d ${domain} --listen-v6 --standalone --httpport ${WebPort} --force
-        if [ $? -ne 0 ]; then
-            echo -e "${red}证书签发失败，请检查日志。${plain}"
-            rm -rf ~/.acme.sh/${domain}
+        # issue the certificate (CA 偶发网络波动很常见, 失败自动重试 3 次)
+        ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+        local issued=0
+        local attempt
+        for attempt in 1 2 3; do
+            echo -e "${yellow}正在签发证书 (第 $attempt/3 次尝试)...${plain}"
+            ~/.acme.sh/acme.sh --issue -d ${domain} --listen-v6 --standalone --httpport ${WebPort} --force --log
+            if [ $? -eq 0 ]; then
+                issued=1
+                break
+            fi
+            if [ $attempt -lt 3 ]; then
+                echo -e "${yellow}本次签发失败（多为 CA 端瞬时网络问题），15 秒后自动重试...${plain}"
+                sleep 15
+            fi
+        done
+        if [[ ${issued} -ne 1 ]]; then
+            echo -e "${red}证书签发失败（已自动重试 3 次）。最近日志：${plain}"
+            show_acme_log_tail
+            echo -e "${yellow}常见原因: 80 端口被占用/未放行、CA 临时故障。可稍后在 xpanel 菜单重试。${plain}"
+            cleanup_acme_dir "${domain}"
             systemctl start xpanel 2> /dev/null || rc-service xpanel start 2> /dev/null
             return 1
         else
@@ -517,7 +548,7 @@ ssl_cert_issue() {
     else
         echo -e "${red}证书安装失败，退出。${plain}"
         if [[ ${cert_exists} -eq 0 ]]; then
-            rm -rf ~/.acme.sh/${domain}
+            cleanup_acme_dir "${domain}"
         fi
         systemctl start xpanel 2> /dev/null || rc-service xpanel start 2> /dev/null
         return 1

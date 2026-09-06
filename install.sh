@@ -588,6 +588,15 @@ ssl_cert_issue() {
             echo -e "${green}访问地址: https://${domain}:${existing_port}/${existing_webBasePath}${plain}"
             echo -e "${yellow}面板将重启以应用 SSL 证书...${plain}"
             systemctl restart xpanel 2> /dev/null || rc-service xpanel restart 2> /dev/null
+            sleep 3
+            # 自检: 确认面板真的以 HTTPS 模式运行 (证书加载失败时会静默回退 HTTP)
+            if curl -sk --max-time 5 "https://127.0.0.1:${existing_port}${existing_webBasePath}" -o /dev/null 2>&1; then
+                echo -e "${green}  ✔ HTTPS 已生效${plain}"
+            else
+                echo -e "${red}  ✘ HTTPS 未生效, 面板可能仍以 HTTP 模式运行!${plain}"
+                echo -e "${yellow}  ➜ 检查: journalctl -u xpanel -n 30 --no-pager | grep -i cert${plain}"
+                echo -e "${yellow}  ➜ 检查证书文件: ls -l ${webCertFile} ${webKeyFile}${plain}"
+            fi
         else
             echo -e "${red}错误: 未找到 $domain 的证书或私钥文件。${plain}"
         fi

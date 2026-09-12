@@ -15,9 +15,32 @@ import (
 	"github.com/go-gost/x/registry"
 )
 
-var httpReportURL string
-var configReportURL string
-var httpAESCrypto *crypto.AESCrypto // 新增：HTTP上报加密器
+var httpReportAddr string   // 面板地址:端口
+var httpReportSecret string // 节点密钥
+var httpAESCrypto *crypto.AESCrypto // HTTP上报加密器
+
+// detectedScheme 记录 WebSocket 连接探测到的面板协议 (http/https)。
+// 面板可能运行 HTTPS (如启用 SSL 后), 上报 URL 需跟随实际协议。
+var detectedScheme = "http"
+
+// SetDetectedScheme 由 WebSocket 连接成功后调用, 同步面板实际协议
+func SetDetectedScheme(scheme string) {
+	if scheme == "https" || scheme == "http" {
+		detectedScheme = scheme
+	}
+}
+
+func reportScheme() string {
+	return detectedScheme
+}
+
+func trafficReportURL() string {
+	return reportScheme() + "://" + httpReportAddr + "/flow/upload?secret=" + httpReportSecret
+}
+
+func configReportURLF() string {
+	return reportScheme() + "://" + httpReportAddr + "/flow/config?secret=" + httpReportSecret
+}
 
 // TrafficReportItem 流量报告项（压缩格式）
 type TrafficReportItem struct {
@@ -27,8 +50,8 @@ type TrafficReportItem struct {
 }
 
 func SetHTTPReportURL(addr string, secret string) {
-	httpReportURL = "http://" + addr + "/flow/upload?secret=" + secret
-	configReportURL = "http://" + addr + "/flow/config?secret=" + secret
+	httpReportAddr = addr
+	httpReportSecret = secret
 
 	// 创建 AES 加密器
 	var err error
@@ -73,7 +96,7 @@ func sendTrafficReport(ctx context.Context, reportItems TrafficReportItem) (bool
 		requestBody = jsonData
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", httpReportURL, bytes.NewBuffer(requestBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", trafficReportURL(), bytes.NewBuffer(requestBody))
 	if err != nil {
 		return false, fmt.Errorf("创建HTTP请求失败: %v", err)
 	}
@@ -114,7 +137,7 @@ func sendTrafficReport(ctx context.Context, reportItems TrafficReportItem) (bool
 
 // sendConfigReport 发送配置报告到HTTP接口
 func sendConfigReport(ctx context.Context) (bool, error) {
-	if configReportURL == "" {
+	if httpReportAddr == "" {
 		return false, fmt.Errorf("配置上报URL未设置")
 	}
 
@@ -149,7 +172,7 @@ func sendConfigReport(ctx context.Context) (bool, error) {
 		requestBody = configData
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", configReportURL, bytes.NewBuffer(requestBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", configReportURLF(), bytes.NewBuffer(requestBody))
 	if err != nil {
 		return false, fmt.Errorf("创建HTTP请求失败: %v", err)
 	}
@@ -190,7 +213,7 @@ func sendConfigReport(ctx context.Context) (bool, error) {
 
 // StartConfigReporter 启动配置定时上报器（每10分钟上报一次）
 func StartConfigReporter(ctx context.Context) {
-	if configReportURL == "" {
+	if httpReportAddr == "" {
 		fmt.Printf("⚠️ 配置上报URL未设置，跳过定时上报\n")
 		return
 	}

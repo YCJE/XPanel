@@ -90,6 +90,7 @@ type WebSocketReporter struct {
 	addr           string // 保存服务器地址
 	secret         string // 保存密钥
 	version        string // 保存版本号
+	scheme         string // 探测到的面板协议 (ws/wss), 空表示未探测
 	conn           *websocket.Conn
 	reconnectTime  time.Duration
 	pingInterval   time.Duration
@@ -212,21 +213,52 @@ func (w *WebSocketReporter) connect() error {
 		json.Unmarshal(b, &cfg)
 	}
 
-	// 使用最新的配置重新构建 URL
-	currentURL := "ws://" + w.addr + "/system-info?type=1&secret=" + w.secret + "&version=" + w.version +
-		"&http=" + strconv.Itoa(cfg.Http) + "&tls=" + strconv.Itoa(cfg.Tls) + "&socks=" + strconv.Itoa(cfg.Socks)
-
-	u, err := url.Parse(currentURL)
-	if err != nil {
-		return fmt.Errorf("解析URL失败: %v", err)
+	// 使用最新的配置重新构建 URL; 面板可能运行 HTTPS, 自动探测 ws/wss 协议
+	schemes := []string{"ws", "wss"}
+	if w.scheme != "" {
+		// 已探测成功的协议优先尝试, 失败后仍回退另一协议 (面板协议可能变更)
+		if w.scheme == "wss" {
+			schemes = []string{"wss", "ws"}
+		} else {
+			schemes = []string{"ws", "wss"}
+		}
 	}
 
 	dialer := websocket.DefaultDialer
 	dialer.HandshakeTimeout = 10 * time.Second
 
-	conn, _, err := dialer.Dial(u.String(), nil)
-	if err != nil {
-		return fmt.Errorf("连接WebSocket失败: %v", err)
+	var conn *websocket.Conn
+	var usedScheme string
+	var lastErr error
+	for _, scheme := range schemes {
+		currentURL := scheme + "://" + w.addr + "/system-info?type=1&secret=" + w.secret + "&version=" + w.version +
+			"&http=" + strconv.Itoa(cfg.Http) + "&tls=" + strconv.Itoa(cfg.Tls) + "&socks=" + strconv.Itoa(cfg.Socks)
+
+		u, err := url.Parse(currentURL)
+		if err != nil {
+			lastErr = fmt.Errorf("解析URL失败: %v", err)
+			continue
+		}
+
+		c, _, derr := dialer.Dial(u.String(), nil)
+		if derr != nil {
+			lastErr = fmt.Errorf("连接WebSocket失败(%s): %v", scheme, derr)
+			continue
+		}
+		conn = c
+		usedScheme = scheme
+		break
+	}
+
+	if conn == nil || lastErr != nil {
+		return lastErr
+	}
+
+	// 同步面板实际协议给 HTTP 上报模块 (ws→http, wss→https)
+	if usedScheme == "wss" {
+		service.SetDetectedScheme("https")
+	} else {
+		service.SetDetectedScheme("http")
 	}
 
 	// 如果在连接过程中已经有连接了，关闭新连接
@@ -246,7 +278,7 @@ func (w *WebSocketReporter) connect() error {
 		return nil
 	})
 
-	fmt.Printf("✅ WebSocket连接建立成功 (http=%d, tls=%d, socks=%d)\n", cfg.Http, cfg.Tls, cfg.Socks)
+	fmt.Printf("✅ WebSocket连接建立成功 (%s, http=%d, tls=%d, socks=%d)\n", usedScheme, cfg.Http, cfg.Tls, cfg.Socks)
 	return nil
 }
 

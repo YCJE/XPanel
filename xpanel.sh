@@ -1245,18 +1245,32 @@ ssl_cert_issue_for_ip() {
     # Reload command - restarts panel after renewal
     local reloadCmd="systemctl restart xpanel 2>/dev/null || rc-service xpanel restart 2>/dev/null"
 
-    # issue the certificate for IP with shortlived profile
-    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt --force
-    ~/.acme.sh/acme.sh --issue \
-        ${domain_args} \
-        --standalone \
-        --server letsencrypt \
-        --certificate-profile shortlived \
-        --days 6 \
-        --httpport ${WebPort} \
-        --force
+    # issue the certificate for IP with shortlived profile (失败自动重试 3 次)
+    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+    local ip_issued=0
+    local ip_attempt
+    for ip_attempt in 1 2 3; do
+        LOGI "Issuing certificate (attempt $ip_attempt/3)..."
+        ~/.acme.sh/acme.sh --issue \
+            ${domain_args} \
+            --standalone \
+            --server letsencrypt \
+            --certificate-profile shortlived \
+            --days 6 \
+            --httpport ${WebPort} \
+            --force \
+            --log
+        if [ $? -eq 0 ]; then
+            ip_issued=1
+            break
+        fi
+        if [ $ip_attempt -lt 3 ]; then
+            LOGI "Issue failed (usually a transient CA network issue), retrying in 15s..."
+            sleep 15
+        fi
+    done
 
-    if [ $? -ne 0 ]; then
+    if [ ${ip_issued} -ne 1 ]; then
         LOGE "Failed to issue certificate for IP: ${server_ip}"
         LOGE "Make sure port ${WebPort} is open and the server is accessible from the internet"
         # Cleanup acme.sh data for both IPv4 and IPv6 if specified
@@ -1412,15 +1426,28 @@ ssl_cert_issue() {
     LOGI "Will use port: ${WebPort} to issue certificates. Please make sure this port is open."
 
     if [[ ${cert_exists} -eq 0 ]]; then
-        # issue the certificate
-        ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt --force
-        ~/.acme.sh/acme.sh --issue -d ${domain} --listen-v6 --standalone --httpport ${WebPort} --force
-        if [ $? -ne 0 ]; then
-            LOGE "Issuing certificate failed, please check logs."
-            rm -rf ~/.acme.sh/${domain}
+        # issue the certificate (失败自动重试 3 次)
+        ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+        local issued=0
+        local attempt
+        for attempt in 1 2 3; do
+            LOGI "Issuing certificate (attempt $attempt/3)..."
+            ~/.acme.sh/acme.sh --issue -d ${domain} --listen-v6 --standalone --httpport ${WebPort} --force --log
+            if [ $? -eq 0 ]; then
+                issued=1
+                break
+            fi
+            if [ $attempt -lt 3 ]; then
+                LOGI "Issue failed (usually a transient CA network issue), retrying in 15s..."
+                sleep 15
+            fi
+        done
+        if [ ${issued} -ne 1 ]; then
+            LOGE "Issuing certificate failed after 3 attempts, please check ~/.acme.sh/acme.sh.log"
+            rm -rf ~/.acme.sh/${domain} ~/.acme.sh/${domain}_ecc 2>/dev/null
             exit 1
         else
-            LOGE "Issuing certificate succeeded, installing certificates..."
+            LOGI "Issuing certificate succeeded, installing certificates..."
         fi
     else
         LOGI "Using existing certificate, installing certificates..."
@@ -1562,10 +1589,23 @@ ssl_cert_issue_CF() {
         export CF_Key="${CF_GlobalKey}"
         export CF_Email="${CF_AccountEmail}"
 
-        # Issue the certificate using Cloudflare DNS
-        ~/.acme.sh/acme.sh --issue --dns dns_cf -d ${CF_Domain} -d *.${CF_Domain} --log --force
-        if [ $? -ne 0 ]; then
-            LOGE "Certificate issuance failed, script exiting..."
+        # Issue the certificate using Cloudflare DNS (失败自动重试 3 次)
+        local cf_issued=0
+        local cf_attempt
+        for cf_attempt in 1 2 3; do
+            LOGI "Issuing certificate (attempt $cf_attempt/3)..."
+            ~/.acme.sh/acme.sh --issue --dns dns_cf -d ${CF_Domain} -d *.${CF_Domain} --log --force
+            if [ $? -eq 0 ]; then
+                cf_issued=1
+                break
+            fi
+            if [ $cf_attempt -lt 3 ]; then
+                LOGI "Issue failed, retrying in 15s..."
+                sleep 15
+            fi
+        done
+        if [ ${cf_issued} -ne 1 ]; then
+            LOGE "Certificate issuance failed after 3 attempts, script exiting..."
             exit 1
         else
             LOGI "Certificate issued successfully, Installing..."

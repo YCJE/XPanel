@@ -15,6 +15,20 @@
   所有客户端的 UUID/密码等凭据，此前同机其他用户/进程可读
 - **SQLite 数据库文件权限收紧为 0600** —— 含管理员凭据哈希与客户端配置
 
+### Agent 协议自动适配 HTTPS 面板（重要）
+- 此前 agent 的上报地址硬编码 `ws://` / `http://`，**面板启用 SSL 证书后
+  agent 将无法连接、流量统计失效**。现 agent 连接时自动探测面板协议
+  （ws/wss、http/https），HTTP 与 HTTPS 面板均可正常工作，协议切换后自动跟随
+- 注意：已在运行的中转 agent 需更新到本版本后重新安装才能获得该能力
+
+### 订阅服务健壮性
+- 修复订阅链接生成器（vmess/vless/trojan/ss/hysteria2）中 6 类未保护类型断言与
+  索引越界：入站数据里 client 缺失/结构异常、stream settings 缺少 network、
+  SS 入站缺少顶层 password、外部代理条目缺 remark 等情况会导致订阅端点 500 或 panic
+- Clash/JSON 订阅同样修复 5 处：畸形 externalProxy 条目自动跳过、
+  TLS/Reality/Hysteria 设置缺失时不再崩溃
+- 导入旧数据或手工编辑入站后，订阅服务的稳定性大幅提升
+
 ### 转发节点生命周期（功能修复）
 - **删除节点时清理对端节点的幽灵服务**：此前删除隧道任一端的节点后，
   存活对端节点上的 gost 服务（relay 监听/链路）不会被下发删除，会一直空转

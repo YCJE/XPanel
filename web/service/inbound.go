@@ -1473,14 +1473,20 @@ func (s *InboundService) adjustTraffics(tx *gorm.DB, dbClientTraffics []*xray.Cl
 			if ok {
 				var newClients []any
 				for client_index := range clients {
-					c := clients[client_index].(map[string]any)
+					c, isMap := clients[client_index].(map[string]any)
+					if !isMap {
+						// settings 里混入了非对象元素: 原样保留, 跳过处理
+						newClients = append(newClients, clients[client_index])
+						continue
+					}
 					for traffic_index := range dbClientTraffics {
 						if dbClientTraffics[traffic_index].ExpiryTime < 0 && c["email"] == dbClientTraffics[traffic_index].Email {
-							oldExpiryTime := c["expiryTime"].(float64)
-							newExpiryTime := (time.Now().Unix() * 1000) - int64(oldExpiryTime)
-							c["expiryTime"] = newExpiryTime
-							c["updated_at"] = time.Now().Unix() * 1000
-							dbClientTraffics[traffic_index].ExpiryTime = newExpiryTime
+							if oldExpiryTime, ok := c["expiryTime"].(float64); ok {
+								newExpiryTime := (time.Now().Unix() * 1000) - int64(oldExpiryTime)
+								c["expiryTime"] = newExpiryTime
+								c["updated_at"] = time.Now().Unix() * 1000
+								dbClientTraffics[traffic_index].ExpiryTime = newExpiryTime
+							}
 							break
 						}
 					}
@@ -1552,11 +1558,22 @@ func (s *InboundService) autoRenewClients(tx *gorm.DB) (bool, int64, error) {
 	for inbound_index := range inbounds {
 		settings := map[string]any{}
 		json.Unmarshal([]byte(inbounds[inbound_index].Settings), &settings)
-		clients := settings["clients"].([]any)
+		clients, clientsOk := settings["clients"].([]any)
+		if !clientsOk {
+			// settings 结构异常: 跳过该入站, 避免统计任务 panic
+			continue
+		}
 		for client_index := range clients {
-			c := clients[client_index].(map[string]any)
+			c, isMap := clients[client_index].(map[string]any)
+			if !isMap {
+				continue
+			}
+			clientEmail, emailOk := c["email"].(string)
+			if !emailOk {
+				continue
+			}
 			for traffic_index, traffic := range traffics {
-				if traffic.Email == c["email"].(string) {
+				if traffic.Email == clientEmail {
 					newExpiryTime := traffic.ExpiryTime
 					for newExpiryTime < now {
 						newExpiryTime += (int64(traffic.Reset) * 86400000)

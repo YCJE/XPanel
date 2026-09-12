@@ -78,6 +78,8 @@ func validateNodeFields(name, serverIp, inAddr string, portStart, portEnd int) e
 }
 
 // UpdateNode saves editable node fields, keeping the existing secret.
+// 节点地址可能变化: 保存后重新下发本节点配置, 并重推引用该节点的隧道
+// (出口 IP 变化时, 入口节点上的 chain 指向需要更新)。
 func (s *Service) UpdateNode(node *model.ForwardNode) error {
 	if node.Id <= 0 {
 		return fmt.Errorf("无效的节点")
@@ -85,7 +87,7 @@ func (s *Service) UpdateNode(node *model.ForwardNode) error {
 	if err := validateNodeFields(node.Name, node.ServerIP, node.InAddr, node.PortStart, node.PortEnd); err != nil {
 		return err
 	}
-	return database.GetDB().Model(&model.ForwardNode{}).
+	if err := database.GetDB().Model(&model.ForwardNode{}).
 		Where("id = ?", node.Id).
 		Updates(map[string]any{
 			"name":       node.Name,
@@ -93,11 +95,55 @@ func (s *Service) UpdateNode(node *model.ForwardNode) error {
 			"in_addr":    node.InAddr,
 			"port_start": node.PortStart,
 			"port_end":   node.PortEnd,
-		}).Error
+		}).Error; err != nil {
+		return err
+	}
+	go func() {
+		s.SyncNode(node.Id)
+		tunnels := make([]*model.TunnelRule, 0)
+		if err := database.GetDB().
+			Where("in_node_id = ? OR out_node_id = ?", node.Id, node.Id).
+			Find(&tunnels).Error; err != nil {
+			return
+		}
+		for _, t := range tunnels {
+			if t.Enable {
+				s.applyTunnelRule(t)
+			}
+		}
+	}()
+	return nil
 }
 
 // DelNode removes a node together with its rules and drops its agent session.
+// 删除前先清理关联隧道在存活对端节点上的 gost 服务, 避免留下幽灵转发规则。
 func (s *Service) DelNode(id int) error {
+	inTunnels := make([]*model.TunnelRule, 0)
+	if err := database.GetDB().Where("in_node_id = ?", id).Find(&inTunnels).Error; err == nil {
+		for _, t := range inTunnels {
+			// 删除的是入口节点: 清理出口节点上的 relay 服务
+			if GlobalHub.IsOnline(t.OutNodeId) {
+				_, _ = GlobalHub.SendCommand(t.OutNodeId, "DeleteService",
+					deleteServiceRequest(fmt.Sprintf("te%d_tls", t.Id)), 10*time.Second)
+				_, _ = GlobalHub.SendCommand(t.OutNodeId, "DeleteLimiters",
+					map[string]any{"limiter": fmt.Sprintf("te%d", t.Id)}, 10*time.Second)
+			}
+		}
+	}
+	outTunnels := make([]*model.TunnelRule, 0)
+	if err := database.GetDB().Where("out_node_id = ?", id).Find(&outTunnels).Error; err == nil {
+		for _, t := range outTunnels {
+			// 删除的是出口节点: 清理入口节点上的服务与链路
+			if GlobalHub.IsOnline(t.InNodeId) {
+				family := fmt.Sprintf("ti%d", t.Id)
+				_, _ = GlobalHub.SendCommand(t.InNodeId, "DeleteService",
+					deleteServiceRequest(family+"_tcp", family+"_udp"), 10*time.Second)
+				_, _ = GlobalHub.SendCommand(t.InNodeId, "DeleteChains", deleteChainRequest(family), 10*time.Second)
+				_, _ = GlobalHub.SendCommand(t.InNodeId, "DeleteLimiters",
+					map[string]any{"limiter": family}, 10*time.Second)
+			}
+		}
+	}
 	GlobalHub.CloseNode(id)
 	return database.GetDB().Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("id = ?", id).Delete(&model.ForwardNode{}).Error; err != nil {

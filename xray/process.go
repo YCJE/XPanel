@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"runtime"
@@ -258,7 +257,8 @@ func (p *process) Start() (err error) {
 	if p.configPath != "" {
 		configPath = p.configPath
 	}
-	err = os.WriteFile(configPath, data, fs.ModePerm)
+	// 配置内含所有客户端的 UUID/密码等敏感凭据, 仅允许属主读写
+	err = os.WriteFile(configPath, data, 0o600)
 	if err != nil {
 		return common.NewErrorf("Failed to write configuration file: %v", err)
 	}

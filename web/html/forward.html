@@ -592,7 +592,7 @@
       delNode(node) {
         this.$confirm({
           title: '删除节点',
-          content: `确定删除节点 "${node.name}" 及其全部转发规则？`,
+          content: `确定删除节点 "${node.name}" 及其全部转发规则？删除后请在节点服务器上卸载 agent（systemctl disable --now gost && rm -rf /etc/gost），否则其上的转发服务不会停止。`,
           okText: '{{ i18n "delete" }}',
           cancelText: '{{ i18n "cancel" }}',
           class: themeSwitcher.currentTheme,

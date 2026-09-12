@@ -147,6 +147,8 @@ func InitDB(dbPath string) error {
 	if err != nil {
 		return err
 	}
+	// 数据库含用户凭据哈希与客户端配置, 收紧文件权限 (best-effort)
+	_ = os.Chmod(dbPath, 0o600)
 
 	if err := initModels(); err != nil {
 		return err

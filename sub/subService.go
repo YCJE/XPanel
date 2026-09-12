@@ -80,6 +80,9 @@ func (s *SubService) GetSubs(subId string, host string) ([]string, int64, xray.C
 					hasEnabledClient = true
 				}
 				link := s.getLink(inbound, client.Email)
+				if link == "" {
+					continue
+				}
 				result = append(result, link)
 				ct := s.getClientTraffics(inbound.ClientStats, client.Email)
 				clientTraffics = append(clientTraffics, ct)
@@ -210,6 +213,9 @@ func (s *SubService) genVmessLink(inbound *model.Inbound, email string) string {
 
 	clients, _ := s.inboundService.GetClients(inbound)
 	clientIndex := findClientIndex(clients, email)
+	if clientIndex < 0 {
+		return "" // 订阅请求与客户端数据不一致时跳过, 避免索引越界
+	}
 	obj["id"] = clients[clientIndex].ID
 	obj["scy"] = clients[clientIndex].Security
 
@@ -231,9 +237,12 @@ func (s *SubService) genVlessLink(inbound *model.Inbound, email string) string {
 	stream := unmarshalStreamSettings(inbound.StreamSettings)
 	clients, _ := s.inboundService.GetClients(inbound)
 	clientIndex := findClientIndex(clients, email)
+	if clientIndex < 0 {
+		return "" // 订阅请求与客户端数据不一致时跳过, 避免索引越界
+	}
 	uuid := clients[clientIndex].ID
 	port := inbound.Port
-	streamNetwork := stream["network"].(string)
+	streamNetwork, _ := stream["network"].(string)
 	params := make(map[string]string)
 	params["type"] = streamNetwork
 
@@ -275,7 +284,8 @@ func (s *SubService) genVlessLink(inbound *model.Inbound, email string) string {
 				return fmt.Sprintf("vless://%s@%s:%d", uuid, dest, port)
 			},
 			func(ep map[string]any) string {
-				return s.genRemark(inbound, email, ep["remark"].(string))
+				epRemark, _ := ep["remark"].(string)
+				return s.genRemark(inbound, email, epRemark)
 			},
 		)
 	}
@@ -292,9 +302,12 @@ func (s *SubService) genTrojanLink(inbound *model.Inbound, email string) string 
 	stream := unmarshalStreamSettings(inbound.StreamSettings)
 	clients, _ := s.inboundService.GetClients(inbound)
 	clientIndex := findClientIndex(clients, email)
+	if clientIndex < 0 {
+		return "" // 订阅请求与客户端数据不一致时跳过, 避免索引越界
+	}
 	password := clients[clientIndex].Password
 	port := inbound.Port
-	streamNetwork := stream["network"].(string)
+	streamNetwork, _ := stream["network"].(string)
 	params := make(map[string]string)
 	params["type"] = streamNetwork
 
@@ -326,7 +339,8 @@ func (s *SubService) genTrojanLink(inbound *model.Inbound, email string) string 
 				return fmt.Sprintf("trojan://%s@%s:%d", password, dest, port)
 			},
 			func(ep map[string]any) string {
-				return s.genRemark(inbound, email, ep["remark"].(string))
+				epRemark, _ := ep["remark"].(string)
+				return s.genRemark(inbound, email, epRemark)
 			},
 		)
 	}
@@ -345,10 +359,13 @@ func (s *SubService) genShadowsocksLink(inbound *model.Inbound, email string) st
 
 	var settings map[string]any
 	json.Unmarshal([]byte(inbound.Settings), &settings)
-	inboundPassword := settings["password"].(string)
-	method := settings["method"].(string)
+	inboundPassword, _ := settings["password"].(string)
+	method, _ := settings["method"].(string)
 	clientIndex := findClientIndex(clients, email)
-	streamNetwork := stream["network"].(string)
+	if clientIndex < 0 {
+		return "" // 订阅请求与客户端数据不一致时跳过, 避免索引越界
+	}
+	streamNetwork, _ := stream["network"].(string)
 	params := make(map[string]string)
 	params["type"] = streamNetwork
 
@@ -363,7 +380,7 @@ func (s *SubService) genShadowsocksLink(inbound *model.Inbound, email string) st
 	}
 
 	encPart := fmt.Sprintf("%s:%s", method, clients[clientIndex].Password)
-	if method[0] == '2' {
+	if len(method) > 0 && method[0] == '2' {
 		encPart = fmt.Sprintf("%s:%s:%s", method, inboundPassword, clients[clientIndex].Password)
 	}
 
@@ -380,7 +397,8 @@ func (s *SubService) genShadowsocksLink(inbound *model.Inbound, email string) st
 				return fmt.Sprintf("ss://%s@%s:%d", base64.StdEncoding.EncodeToString([]byte(encPart)), dest, port)
 			},
 			func(ep map[string]any) string {
-				return s.genRemark(inbound, email, ep["remark"].(string))
+				epRemark, _ := ep["remark"].(string)
+				return s.genRemark(inbound, email, epRemark)
 			},
 		)
 	}
@@ -403,6 +421,9 @@ func (s *SubService) genHysteriaLink(inbound *model.Inbound, email string) strin
 			break
 		}
 	}
+	if clientIndex < 0 {
+		return "" // 订阅请求与客户端数据不一致时跳过, 避免索引越界
+	}
 	auth := clients[clientIndex].Auth
 	params := make(map[string]string)
 
@@ -411,7 +432,9 @@ func (s *SubService) genHysteriaLink(inbound *model.Inbound, email string) strin
 	alpns, _ := tlsSetting["alpn"].([]any)
 	var alpn []string
 	for _, a := range alpns {
-		alpn = append(alpn, a.(string))
+		if s, ok := a.(string); ok {
+			alpn = append(alpn, s)
+		}
 	}
 	if len(alpn) > 0 {
 		params["alpn"] = strings.Join(alpn, ",")
@@ -426,7 +449,7 @@ func (s *SubService) genHysteriaLink(inbound *model.Inbound, email string) strin
 			params["fp"], _ = fpValue.(string)
 		}
 		if insecure, ok := searchKey(tlsSettings, "allowInsecure"); ok {
-			if insecure.(bool) {
+			if b, ok := insecure.(bool); ok && b {
 				params["insecure"] = "1"
 			}
 		}

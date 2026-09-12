@@ -130,13 +130,23 @@ func (s *SubClashService) getProxies(inbound *model.Inbound, client model.Client
 
 	proxies := make([]map[string]any, 0, len(externalProxies))
 	for _, ep := range externalProxies {
-		extPrxy := ep.(map[string]any)
+		extPrxy, ok := ep.(map[string]any)
+		if !ok {
+			continue // 畸形的 externalProxy 条目: 跳过
+		}
+		dest, _ := extPrxy["dest"].(string)
+		portF, hasPort := extPrxy["port"].(float64)
+		forceTls, _ := extPrxy["forceTls"].(string)
+		epRemark, _ := extPrxy["remark"].(string)
+		if dest == "" || !hasPort {
+			continue
+		}
 		workingInbound := *inbound
-		workingInbound.Listen = extPrxy["dest"].(string)
-		workingInbound.Port = int(extPrxy["port"].(float64))
+		workingInbound.Listen = dest
+		workingInbound.Port = int(portF)
 		workingStream := cloneMap(stream)
 
-		switch extPrxy["forceTls"].(string) {
+		switch forceTls {
 		case "tls":
 			if workingStream["security"] != "tls" {
 				workingStream["security"] = "tls"
@@ -150,7 +160,7 @@ func (s *SubClashService) getProxies(inbound *model.Inbound, client model.Client
 			}
 		}
 
-		proxy := s.buildProxy(&workingInbound, client, workingStream, extPrxy["remark"].(string))
+		proxy := s.buildProxy(&workingInbound, client, workingStream, epRemark)
 		if len(proxy) > 0 {
 			proxies = append(proxies, proxy)
 		}

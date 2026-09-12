@@ -182,11 +182,21 @@ func (s *SubJsonService) getConfig(inbound *model.Inbound, client model.Client, 
 	delete(stream, "externalProxy")
 
 	for _, ep := range externalProxies {
-		extPrxy := ep.(map[string]any)
-		inbound.Listen = extPrxy["dest"].(string)
-		inbound.Port = int(extPrxy["port"].(float64))
+		extPrxy, ok := ep.(map[string]any)
+		if !ok {
+			continue // 畸形的 externalProxy 条目: 跳过
+		}
+		dest, _ := extPrxy["dest"].(string)
+		portF, hasPort := extPrxy["port"].(float64)
+		forceTls, _ := extPrxy["forceTls"].(string)
+		epRemark, _ := extPrxy["remark"].(string)
+		if dest == "" || !hasPort {
+			continue
+		}
+		inbound.Listen = dest
+		inbound.Port = int(portF)
 		newStream := stream
-		switch extPrxy["forceTls"].(string) {
+		switch forceTls {
 		case "tls":
 			if newStream["security"] != "tls" {
 				newStream["security"] = "tls"
@@ -218,7 +228,7 @@ func (s *SubJsonService) getConfig(inbound *model.Inbound, client model.Client, 
 		maps.Copy(newConfigJson, s.configJson)
 
 		newConfigJson["outbounds"] = newOutbounds
-		newConfigJson["remarks"] = s.SubService.genRemark(inbound, client.Email, extPrxy["remark"].(string))
+		newConfigJson["remarks"] = s.SubService.genRemark(inbound, client.Email, epRemark)
 
 		newConfig, _ := json.MarshalIndent(newConfigJson, "", "  ")
 		newJsonArray = append(newJsonArray, newConfig)
@@ -233,9 +243,13 @@ func (s *SubJsonService) streamData(stream string) map[string]any {
 	security, _ := streamSettings["security"].(string)
 	switch security {
 	case "tls":
-		streamSettings["tlsSettings"] = s.tlsData(streamSettings["tlsSettings"].(map[string]any))
+		if m, ok := streamSettings["tlsSettings"].(map[string]any); ok {
+			streamSettings["tlsSettings"] = s.tlsData(m)
+		}
 	case "reality":
-		streamSettings["realitySettings"] = s.realityData(streamSettings["realitySettings"].(map[string]any))
+		if m, ok := streamSettings["realitySettings"].(map[string]any); ok {
+			streamSettings["realitySettings"] = s.realityData(m)
+		}
 	}
 	delete(streamSettings, "sockopt")
 
@@ -426,7 +440,10 @@ func (s *SubJsonService) genHy(inbound *model.Inbound, newStream map[string]any,
 	}
 
 	json.Unmarshal([]byte(inbound.StreamSettings), &stream)
-	hyStream := stream["hysteriaSettings"].(map[string]any)
+	hyStream, ok := stream["hysteriaSettings"].(map[string]any)
+	if !ok {
+		hyStream = map[string]any{}
+	}
 	outHyStream := map[string]any{
 		"version": int(version),
 		"auth":    client.Auth,

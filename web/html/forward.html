@@ -46,7 +46,9 @@
 
                 <a-tab-pane key="forwards" tab="端口转发">
                   <a-space direction="vertical" :style="{ width: '100%' }">
-                    <a-button type="primary" icon="plus" @click="openAddForward">添加转发</a-button>
+                    <a-tooltip title="请先在「节点管理」中添加节点">
+                      <a-button type="primary" icon="plus" @click="openAddForward" :disabled="nodes.length === 0">添加转发</a-button>
+                    </a-tooltip>
                     <a-table :columns="forwardColumns" :row-key="r => r.id" :data-source="forwards"
                       :pagination="forwards.length > 10 ? { size: 'small' } : false"
                       :scroll="isMobile ? {} : { x: 1000 }">
@@ -78,7 +80,9 @@
 
                 <a-tab-pane key="tunnels" tab="隧道转发">
                   <a-space direction="vertical" :style="{ width: '100%' }">
-                    <a-button type="primary" icon="plus" @click="openAddTunnel">添加隧道</a-button>
+                    <a-tooltip title="请先在「节点管理」中添加节点（隧道需要入口与出口两个节点）">
+                      <a-button type="primary" icon="plus" @click="openAddTunnel" :disabled="nodes.length < 2">添加隧道</a-button>
+                    </a-tooltip>
                     <a-table :columns="tunnelColumns" :row-key="r => r.id" :data-source="tunnels"
                       :pagination="tunnels.length > 10 ? { size: 'small' } : false"
                       :scroll="isMobile ? {} : { x: 1100 }">
@@ -567,8 +571,15 @@
         this.installModal.show(node);
       },
       syncNode(node) {
-        this.$message.loading('正在同步配置', 2);
-        HttpUtil.post(`panel/api/forward/nodes/sync/${node.id}`);
+        const hide = this.$message.loading('正在下发同步指令...', 0);
+        HttpUtil.post(`panel/api/forward/nodes/sync/${node.id}`).then(msg => {
+          hide();
+          if (msg.success) {
+            this.$message.success('同步指令已下发，节点将重新拉取全部配置');
+          } else {
+            this.$message.error(msg.msg || '同步失败');
+          }
+        });
       },
       openAddNode() {
         this.nodeModal.show({
@@ -635,7 +646,10 @@
       toggleForward(rule, enable) {
         HttpUtil.post(`panel/api/forward/rules/toggle/${rule.id}`, {
           enable: enable
-        }).then(() => this.loadData());
+        }).then(msg => {
+          if (!msg.success) this.$message.error(msg.msg || '操作失败');
+          this.loadData();
+        });
       },
       openAddTunnel() {
         this.tunnelModal.show({
@@ -673,7 +687,10 @@
       toggleTunnel(rule, enable) {
         HttpUtil.post(`panel/api/forward/tunnels/toggle/${rule.id}`, {
           enable: enable
-        }).then(() => this.loadData());
+        }).then(msg => {
+          if (!msg.success) this.$message.error(msg.msg || '操作失败');
+          this.loadData();
+        });
       },
       resetTraffic(type, rule) {
         const url = type === 'forward' ?

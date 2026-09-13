@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-gost/core/observer/stats"
@@ -20,18 +21,21 @@ var httpReportSecret string // 节点密钥
 var httpAESCrypto *crypto.AESCrypto // HTTP上报加密器
 
 // detectedScheme 记录 WebSocket 连接探测到的面板协议 (http/https)。
-// 面板可能运行 HTTPS (如启用 SSL 后), 上报 URL 需跟随实际协议。
-var detectedScheme = "http"
+// 由 WS goroutine 写入、上报 goroutine 读取, 使用原子操作避免数据竞争。
+var detectedScheme atomic.Value // 存储 string
 
 // SetDetectedScheme 由 WebSocket 连接成功后调用, 同步面板实际协议
 func SetDetectedScheme(scheme string) {
 	if scheme == "https" || scheme == "http" {
-		detectedScheme = scheme
+		detectedScheme.Store(scheme)
 	}
 }
 
 func reportScheme() string {
-	return detectedScheme
+	if v, ok := detectedScheme.Load().(string); ok && v != "" {
+		return v
+	}
+	return "http"
 }
 
 func trafficReportURL() string {

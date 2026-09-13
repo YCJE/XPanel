@@ -220,6 +220,7 @@ func (s *Service) AddForwardRule(rule *model.ForwardRule, enable *bool) error {
 
 // UpdateForwardRule replaces the rule config on the agent while preserving
 // traffic counters (and enable state unless explicitly toggled).
+// 规则更换节点时, 同步清理旧节点上的服务, 避免幽灵转发规则。
 func (s *Service) UpdateForwardRule(rule *model.ForwardRule, enable *bool) error {
 	existing := &model.ForwardRule{}
 	if err := database.GetDB().First(existing, rule.Id).Error; err != nil {
@@ -235,6 +236,9 @@ func (s *Service) UpdateForwardRule(rule *model.ForwardRule, enable *bool) error
 	}
 	if err := database.GetDB().Save(rule).Error; err != nil {
 		return err
+	}
+	if existing.NodeId != rule.NodeId {
+		s.removeServices(existing.NodeId, fmt.Sprintf("pf%d", rule.Id), true)
 	}
 	s.applyForwardRule(rule)
 	return nil
@@ -375,6 +379,7 @@ func (s *Service) AddTunnelRule(rule *model.TunnelRule, enable *bool) error {
 
 // UpdateTunnelRule replaces the tunnel config on both nodes while preserving
 // traffic counters (and enable state unless explicitly toggled).
+// 入口/出口节点变更时, 同步清理旧节点上的服务与链路。
 func (s *Service) UpdateTunnelRule(rule *model.TunnelRule, enable *bool) error {
 	existing := &model.TunnelRule{}
 	if err := database.GetDB().First(existing, rule.Id).Error; err != nil {
@@ -390,6 +395,27 @@ func (s *Service) UpdateTunnelRule(rule *model.TunnelRule, enable *bool) error {
 	}
 	if err := database.GetDB().Save(rule).Error; err != nil {
 		return err
+	}
+	family := fmt.Sprintf("ti%d", rule.Id)
+	exitFamily := fmt.Sprintf("te%d", rule.Id)
+	if existing.InNodeId != rule.InNodeId {
+		// 入口节点变更: 清理旧入口节点上的服务与链路
+		if GlobalHub.IsOnline(existing.InNodeId) {
+			_, _ = GlobalHub.SendCommand(existing.InNodeId, "DeleteService",
+				deleteServiceRequest(family+"_tcp", family+"_udp"), 10*time.Second)
+			_, _ = GlobalHub.SendCommand(existing.InNodeId, "DeleteChains", deleteChainRequest(family), 10*time.Second)
+			_, _ = GlobalHub.SendCommand(existing.InNodeId, "DeleteLimiters",
+				map[string]any{"limiter": family}, 10*time.Second)
+		}
+	}
+	if existing.OutNodeId != rule.OutNodeId {
+		// 出口节点变更: 清理旧出口节点上的 relay 服务
+		if GlobalHub.IsOnline(existing.OutNodeId) {
+			_, _ = GlobalHub.SendCommand(existing.OutNodeId, "DeleteService",
+				deleteServiceRequest(exitFamily+"_tls"), 10*time.Second)
+			_, _ = GlobalHub.SendCommand(existing.OutNodeId, "DeleteLimiters",
+				map[string]any{"limiter": exitFamily}, 10*time.Second)
+		}
 	}
 	s.applyTunnelRule(rule)
 	return nil
